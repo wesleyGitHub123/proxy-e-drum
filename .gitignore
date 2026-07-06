@@ -9,6 +9,8 @@ CLAUDE.md
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
+e-drum capture/e-drummer/.gitignore
+e-drum capture/e-drummer/.vscode/
 
 # Python
 __pycache__/

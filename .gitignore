@@ -1,0 +1,56 @@
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor state
+.claude/
+CLAUDE.md
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+site/
+htmlcov/
+.coverage*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+.ipynb_checkpoints/
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Logs and transient files
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+*.swp
+*.swo
+*.pid
+*.seed
+*.stackdump
+*.cache
+
+# Generated session recordings
+e-drum brain/sessions/

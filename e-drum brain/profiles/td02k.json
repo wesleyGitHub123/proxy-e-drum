@@ -1,0 +1,32 @@
+{
+  "profile_id": "td02k",
+  "name": "Roland TD-02K",
+  "profile_version": 1,
+  "note_map": {
+    "36": {"instrument": "KICK"},
+    "38": {"instrument": "SNARE", "articulation": "head"},
+    "40": {"instrument": "SNARE", "articulation": "rim"},
+    "37": {"instrument": "SNARE", "articulation": "crossstick"},
+    "48": {"instrument": "TOM_HIGH", "articulation": "head"},
+    "45": {"instrument": "TOM_MID", "articulation": "head"},
+    "43": {"instrument": "TOM_LOW", "articulation": "head"},
+    "46": {"instrument": "HIHAT", "articulation": "open"},
+    "26": {"instrument": "HIHAT", "articulation": "open"},
+    "42": {"instrument": "HIHAT", "articulation": "closed"},
+    "22": {"instrument": "HIHAT", "articulation": "closed"},
+    "44": {"instrument": "HH_PEDAL"},
+    "49": {"instrument": "CRASH", "articulation": "bow"},
+    "55": {"instrument": "CRASH", "articulation": "edge"},
+    "51": {"instrument": "RIDE", "articulation": "bow"},
+    "59": {"instrument": "RIDE", "articulation": "edge"},
+    "53": {"instrument": "RIDE", "articulation": "bell"}
+  },
+  "capabilities": {
+    "has_hh_pedal": true,
+    "has_positional_sensing": false,
+    "velocity_curve_id": null
+  },
+  "controllers": {
+    "hh_pedal": {"controller": 4, "min": 0, "max": 90}
+  }
+}

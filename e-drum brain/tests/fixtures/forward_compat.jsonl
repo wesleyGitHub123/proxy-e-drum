@@ -1,0 +1,6 @@
+{"type":"meta","schema_version":1,"session_id":"44444444aaaa4bbb8ccc000000000004","start_iso":"2026-07-06T12:00:00+08:00","kit_profile_id":"td02k","user_id":"local","calibration_offset_ms":null,"future_field":"tolerated"}
+{"type":"event","t":100,"note":36,"velocity":90,"channel":9}
+{"type":"pause","t":500,"reason":"idle"}
+{"type":"resume","t":2500}
+{"type":"event","t":3000,"note":38,"velocity":85,"channel":9,"lane_hint":"SNARE"}
+{"type":"session_end","t":3200}

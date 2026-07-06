@@ -1,0 +1,5 @@
+{"type":"meta","schema_version":1,"session_id":"11111111aaaa4bbb8ccc000000000001","start_iso":"2026-07-06T12:00:00+08:00","kit_profile_id":"td02k","user_id":"local","calibration_offset_ms":null}
+{"type":"event","t":100,"note":36,"velocity":96,"channel":9}
+{"type":"event","t":600,"note":38,"velocity":104,"channel":9}
+{"type":"event","t":1100,"note":42,"velocity":72,"channel":9}
+{"type":"session_end","t":1500}

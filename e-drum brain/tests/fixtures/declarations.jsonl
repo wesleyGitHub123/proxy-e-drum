@@ -1,0 +1,15 @@
+{"type":"meta","schema_version":1,"session_id":"22222222aaaa4bbb8ccc000000000002","start_iso":"2026-07-06T12:00:00+08:00","kit_profile_id":"td02k","user_id":"local","calibration_offset_ms":null}
+{"type":"ctrl","t":50,"msg":{"type":"control_change","channel":9,"control":4,"value":88}}
+{"type":"event","t":500,"note":42,"velocity":60,"channel":9}
+{"type":"grid_start","t":1000,"bpm":120,"subdiv":4,"downbeat_t":1000}
+{"type":"event","t":1000,"note":36,"velocity":100,"channel":9}
+{"type":"event","t":1500,"note":38,"velocity":95,"channel":9}
+{"type":"event","t":2000,"note":36,"velocity":98,"channel":9}
+{"type":"grid_end","t":3000}
+{"type":"bookmark","t":3500}
+{"type":"enroll_start","t":4000,"profile_ref":"basic-rock","bpm":120,"subdiv":4,"downbeat_t":4000}
+{"type":"event","t":4000,"note":36,"velocity":100,"channel":9}
+{"type":"event","t":4500,"note":38,"velocity":90,"channel":9}
+{"type":"enroll_end","t":6000}
+{"type":"ctrl","t":6200,"msg":{"type":"note_off","channel":9,"note":42,"velocity":64}}
+{"type":"session_end","t":6500}

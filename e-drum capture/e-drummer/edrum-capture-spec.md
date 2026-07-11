@@ -180,6 +180,8 @@ Kit → **Tank-G** (M-VAVE guitar multi-FX, used as clean pass-through + monitor
 | — | Calibration offset source | **Resolved:** measured/loaded per setup, recorded **per session** as `calibration_offset_ms` (§4/§4A) |
 | — | On-disk format | **Resolved:** append-only typed-line log; crash recovery = truncate-to-last-complete-line (§6) |
 
+The experimental plan and decision register that resolve the remaining hardware uncertainties live in [firmware-architecture-roadmap.md](firmware-architecture-roadmap.md).
+
 ---
 
 ## 11. Design-review integration log (pre-implementation review)

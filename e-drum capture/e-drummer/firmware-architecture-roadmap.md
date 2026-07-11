@@ -40,15 +40,17 @@ USB-MIDI enumeration, callback timestamp logging, event counting, and a no-op dr
 
 Measurements to record
 
-Enumeration success rate, callback jitter distribution, callback latency relative to observed USB frame timing, missed-event count, reconnect behavior, and CPU load during sustained playing.
+Enumeration success rate, missed-event count (ring drops + realtime drops + transfer errors), reconnect behavior, and the inter-arrival gap *distribution* between completed IN transfers — not just its max.
+
+The load-bearing subtlety: the raw **max** gap is not latency. An idle USB-MIDI IN endpoint NAKs, so no completion callback fires until the kit actually sends a packet; a multi-second max gap is just the drummer resting and says nothing about host health. The host-scheduling-layer question lives entirely in the **lower tail** — when two messages arrive close together (a dense roll), the gap should sit near the ~1 ms full-speed frame floor, not pile up at some inflated host quantum. The `cb_gap` instrumentation (`cb_gap.h`) therefore separates burst spacing (`burst_max`, gaps ≤ 15 ms — data flowing) from idle rests, keeps the `min` gap, and bins the whole distribution into a histogram so its shape is read directly instead of collapsed to a max. Sign-off requires **one capture during a sustained fast roll**, where the tail is populated.
 
 Success criteria
 
-Zero lost events across repeated play sessions, stable callback timing within the USB frame envelope, and no evidence that the callback path itself adds a second scheduling layer.
+Zero lost events across repeated play sessions (ring/realtime/transfer-error counters at 0, ring high-water well under capacity), reconnect handled cleanly, and — during a dense roll — a `min` gap and `burst_max` near the frame floor with a histogram that shows no anomalous pile-up at a host-scheduling quantum. The idle max is expected to be large and is explicitly *not* a failure.
 
 Failure criteria
 
-Dropped MIDI, recurring callback stalls, callback timing that clearly exceeds the USB frame envelope, or any sign that the native host path is not stable enough for the capture edge.
+Dropped MIDI (any nonzero ring/realtime drops), transfer errors during steady play, ring high-water climbing toward capacity, or a burst-tail / histogram that shows spacing systematically inflated above the frame floor *when data is flowing* — evidence the native host path adds a second scheduling layer.
 
 Architectural decisions unlocked
 
@@ -61,6 +63,16 @@ Native host works cleanly; native host works only with a stricter scheduling mod
 How each outcome changes the specification
 
 Clean success keeps Section 8.1's native-host path. Borderline success tightens Section 3's timestamp rule and likely forces stricter buffering in Section 2. Failure pushes the design toward MAX3421E and widens the board search in Section 8.5.
+
+Evidence to date (2026-07-11)
+
+Most of this experiment is already answered on hardware; only the timing-tail sign-off remains, and it is now measurable rather than guessed.
+
+- **Enumeration + capture path — demonstrated live.** A `stats` run against the TD-02 shows `usb: claimed MIDI iface 1, IN ep 0x84 (bulk, MPS 64)` → `MIDI stream running`, then 5204 transfers carrying 2595 events / 2608 ctrls with `usb errors=0`.
+- **Zero lost events — demonstrated.** `ring DROPS=0`, `realtime_dropped=0`, ring `high_water=4/512` across that run. The capture edge never backed up.
+- **Reconnect — demonstrated.** The same session shows a `device closed — ready for replug` → re-claim → `stream running` cycle (`sessions started=2`) handled without drops.
+- **Capture-path software correctness — conformance-frozen.** The native and embedded suites (USB-MIDI parser, descriptor walk, SPSC ring, session FSM, serialization) pass, so the parsing/stamping/buffering logic is locked independent of hardware. The gap classifier itself is now covered by `test/native/test_cb_gap` (idle-vs-burst split, thresholds, histogram edges, reconnect reset, and a regression guard reproducing the reported 1.83 s-max run).
+- **Open item — the timing tail only.** The first live run's `cb_gap max ≈ 1.83 s` with most gaps > 10 ms was an idle-spacing artifact (rests between hits), not host latency — the earlier max-only instrumentation could not tell the two apart. It now can (`min` / `burst_max` / histogram). Remaining to close ADR-1: one capture during a sustained fast roll, confirming the burst tail sits near the frame floor with no anomalous host-quantum pile-up.
 
 ### Experiment 2: VBUS and enumeration power topology
 
@@ -300,7 +312,7 @@ Optimal order:
 
 | ID | Question | Evidence | Decision | Reasoning | Spec sections affected | Status |
 |---|---|---|---|---|---|---|
-| ADR-1 | Can the native USB host path timestamp capture cleanly enough? | Firmware harness shipped (2026-07-10): interface claim + IN transfers + arrival-edge stamps + `cb_gap` counters in `stats`. Run Experiment 1 against the live TD-02 per README runbook. | Native host chosen for v1; MAX3421E remains the contingency behind the same `IClock`/producer seam | The capture edge is load-bearing; if native host timing is not clean, only the platform producer adapter changes. | 3, 8.1, 8.2, 8.3 | Testing |
+| ADR-1 | Can the native USB host path timestamp capture cleanly enough? | Live TD-02 run (2026-07-11): enumerate → claim iface 1 / IN ep 0x84 → stream; 5204 transfers, 2595 events, `usb errors=0`, `ring DROPS=0`, high-water 4/512, clean replug cycle. Enumeration, zero-drop capture, and reconnect are demonstrated; software path conformance-frozen by the native+embedded suites. Remaining: burst-tail sign-off via the new `cb_gap` min/burst/histogram metrics (`test_cb_gap` locks the classifier) — needs one sustained-roll capture. | Native host chosen for v1; MAX3421E remains the contingency behind the same `IClock`/producer seam | The capture edge is load-bearing; if native host timing is not clean, only the platform producer adapter changes. | 3, 8.1, 8.2, 8.3 | Testing (drops/reconnect validated; timing tail pending one dense-roll capture) |
 | ADR-2 | Can the chosen power topology hold VBUS and enumerate reliably? | Experiment 2 executed on hardware: TD-02 enumerates with externally injected VBUS; full descriptor set read (probe preserved at `tools/probe/`). | Powered VBUS injection topology works on the DevKitC-1 | No VBUS means no host capture, so power topology is a first-class architectural decision. | 8.2, 8.5 | **Validated** |
 | ADR-3 | Can storage stalls be absorbed by a finite buffer? | Firmware harness shipped: SdFat path + 512-record ring + `burst`/`stats` instrumentation (stall max, high-water, drops). Run Experiment 3 per README runbook. | External SPI SD via SdFat chosen for v1; ring sized 512 pending measurement | If the buffer budget fails, buffer depth/PSRAM/medium change — all contained behind `IStorage` and the ring. | 2, 6, 8.4 | Testing |
 | ADR-4 | Can the board be flashed and debugged while hosting the kit? | Experiment 4 executed on hardware: DevKitC-1 two-port topology flashes + monitors while the kit stays hosted. | DevKitC-1 UART-bridge port for flash/serial; OTG port for the kit | Development loop viability constrains board selection and transport strategy. | 8.3, 8.5 | **Validated** |

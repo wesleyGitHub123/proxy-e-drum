@@ -125,9 +125,13 @@ Chosen to avoid USB (19/20), flash (26–32), octal PSRAM (33–37), strapping
 
 ## Experiment runbook (firmware-architecture-roadmap.md)
 
-* **Experiment 1 (ADR-1, USB timestamp path)** — plug the kit, play hard,
-  read `stats`: `cb_gap` max / >2 ms / >10 ms counts and `midi=`/`events=`
-  totals. Success = no missed events, gaps hugging the 1 ms frame floor.
+* **Experiment 1 (ADR-1, USB timestamp path)** — plug the kit, play a
+  sustained fast roll, read `stats`. Success = no missed events (`ring
+  DROPS=0`, `realtime_dropped=0`, high-water « capacity) **and** a tight
+  lower tail: `cb_gap min` / `burst(<=15ms) max` near the ~1 ms frame floor
+  with the `gap hist` showing no pile-up at a host quantum. Ignore `cb_gap
+  max` — a big idle gap is just a rest (an idle IN endpoint NAKs), not
+  latency.
 * **Experiment 3 (ADR-3, storage stall budget)** — `burst 5000 1000`, then
   `stats`: `ring high_water` (buffer depth actually needed), `DROPS` (must
   be 0), `stall max` / `>50ms`. Also yank power mid-burst and confirm

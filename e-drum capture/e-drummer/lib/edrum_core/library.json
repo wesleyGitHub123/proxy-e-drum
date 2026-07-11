@@ -1,0 +1,8 @@
+{
+  "name": "edrum_core",
+  "version": "0.1.0",
+  "description": "e-drummer capture firmware core: pure, hardware-free record model, serialization, ring buffer, USB-MIDI parsing, session state machine, click schedule, gestures. No Arduino/ESP-IDF includes — compiles and tests in the native environment.",
+  "build": {
+    "srcDir": "src"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "edrum_platform",
+  "version": "0.1.0",
+  "description": "ESP32-S3 adapters implementing the edrum_core HAL ports: native USB host MIDI link, SdFat storage, esp_timer clock, NVS-backed wall clock, I2S click output. The only code in the firmware that touches hardware.",
+  "platforms": ["espressif32"],
+  "frameworks": ["arduino"],
+  "dependencies": {
+    "edrum_core": "*"
+  },
+  "build": {
+    "srcDir": "src"
+  }
+}

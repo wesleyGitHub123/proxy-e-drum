@@ -95,7 +95,6 @@ private:
     bool streaming_ = false;
 
     uint64_t current_t_us_ = 0;  // stamp of the transfer being parsed
-    uint64_t last_cb_us_ = 0;    // Experiment 1 gap instrumentation
 };
 
 }  // namespace platform

@@ -27,9 +27,16 @@ void print_stats() {
     Serial.printf("usb      transfers=%lu errors=%lu midi=%lu realtime_dropped=%lu\n",
                   (unsigned long)c.usb_transfers, (unsigned long)c.usb_transfer_errors,
                   (unsigned long)c.midi_msgs, (unsigned long)c.realtime_dropped);
-    Serial.printf("         cb_gap max=%luus >2ms=%lu >10ms=%lu   (Experiment 1)\n",
-                  (unsigned long)c.cb_gap_max_us, (unsigned long)c.cb_gap_over_2ms,
-                  (unsigned long)c.cb_gap_over_10ms);
+    Serial.printf("         cb_gap max=%luus min=%luus >2ms=%lu >10ms=%lu   (Experiment 1)\n",
+                  (unsigned long)c.cb_gap.max_us, (unsigned long)c.cb_gap.min_us,
+                  (unsigned long)c.cb_gap.over_2ms, (unsigned long)c.cb_gap.over_10ms);
+    Serial.printf("         burst(<=15ms) n=%lu max=%luus  (host-tail: watch this, not max)\n",
+                  (unsigned long)c.cb_gap.burst_samples, (unsigned long)c.cb_gap.burst_max_us);
+    Serial.printf("         gap hist [<1<2<5<10<50<200ms<1s>=1s]=%lu/%lu/%lu/%lu/%lu/%lu/%lu/%lu\n",
+                  (unsigned long)c.cb_gap.hist[0], (unsigned long)c.cb_gap.hist[1],
+                  (unsigned long)c.cb_gap.hist[2], (unsigned long)c.cb_gap.hist[3],
+                  (unsigned long)c.cb_gap.hist[4], (unsigned long)c.cb_gap.hist[5],
+                  (unsigned long)c.cb_gap.hist[6], (unsigned long)c.cb_gap.hist[7]);
     Serial.printf("capture  events=%lu ctrls=%lu sysex=%lu(trunc %lu) cache_flushes=%lu\n",
                   (unsigned long)c.events, (unsigned long)c.ctrls,
                   (unsigned long)c.sysex_msgs, (unsigned long)c.sysex_truncated,

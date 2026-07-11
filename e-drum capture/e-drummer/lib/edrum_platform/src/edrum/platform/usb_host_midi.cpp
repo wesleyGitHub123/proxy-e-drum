@@ -175,7 +175,7 @@ void UsbHostMidi::open_and_claim() {
     }
 
     streaming_ = true;
-    last_cb_us_ = 0;
+    counters_.cb_gap.begin_stream();  // don't measure a gap across the attach
     sink_.on_status("usb: MIDI stream running");
     sink_.on_device(true);
 }
@@ -212,14 +212,9 @@ void UsbHostMidi::on_transfer_done(usb_transfer_t* transfer) {
     if (transfer->status == USB_TRANSFER_STATUS_COMPLETED) {
         counters_.usb_transfers++;
 
-        // Experiment 1 instrumentation: spacing between completions.
-        if (last_cb_us_ != 0) {
-            const uint64_t gap = t_us - last_cb_us_;
-            if (gap > counters_.cb_gap_max_us) counters_.cb_gap_max_us = (uint32_t)gap;
-            if (gap > 2000) counters_.cb_gap_over_2ms++;
-            if (gap > 10000) counters_.cb_gap_over_10ms++;
-        }
-        last_cb_us_ = t_us;
+        // Experiment 1 instrumentation: inter-arrival spacing between
+        // completions (idle vs burst vs distribution — see cb_gap.h).
+        counters_.cb_gap.record(t_us);
 
         current_t_us_ = t_us;
         parser_.feed(transfer->data_buffer, (size_t)transfer->actual_num_bytes);

@@ -10,6 +10,8 @@
 
 #include <stdint.h>
 
+#include "edrum/cb_gap.h"
+
 namespace edrum {
 
 struct Counters {
@@ -29,12 +31,11 @@ struct Counters {
     uint32_t ctrl_cache_flushes = 0;
     uint32_t ctrl_nosession_dropped = 0;  // non-cacheable ctrl with no session
 
-    // Experiment 1: spacing between consecutive transfer callbacks while a
-    // device is streaming (µs). A tail far beyond the ~1 ms USB frame floor
-    // means the host path adds its own scheduling layer (capture spec §3).
-    uint32_t cb_gap_max_us = 0;
-    uint32_t cb_gap_over_2ms = 0;
-    uint32_t cb_gap_over_10ms = 0;
+    // Experiment 1: inter-arrival spacing between consecutive completed USB IN
+    // transfers. The raw max is just the longest rest (an idle IN endpoint
+    // NAKs, so no callback fires); the host-health signal is the lower tail —
+    // min gap and within-burst spacing — see cb_gap.h.
+    CbGapStats cb_gap;
 
     // storage (writer: storage task)
     uint32_t storage_lines = 0;

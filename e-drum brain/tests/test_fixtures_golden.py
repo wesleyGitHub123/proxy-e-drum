@@ -16,7 +16,12 @@ from edrum.engine.session import GridSegment, EnrollmentSpan
 from edrum.io.logfile import load_session, read_log
 from tests.conftest import FIXTURES_DIR
 
-BYTE_STABLE_FIXTURES = ["minimal.jsonl", "declarations.jsonl", "warmup_no_grid.jsonl"]
+BYTE_STABLE_FIXTURES = [
+    "minimal.jsonl",
+    "declarations.jsonl",
+    "warmup_no_grid.jsonl",
+    "anonymous_enroll.jsonl",
+]
 
 
 @pytest.mark.parametrize("name", BYTE_STABLE_FIXTURES)
@@ -60,6 +65,17 @@ def test_warmup_no_grid_stays_grid_empty():
     assert session.grid_track == []
     assert session.enrollment_spans == []
     assert len(session.events) == 8
+
+
+def test_anonymous_enroll_fold_yields_none_profile_ref():
+    """The zero-friction enrollment path (architecture review, 2026-07-11):
+    no label at capture time folds to profile_ref=None, never a synthesized
+    name — this fixture is the producer-side conformance counterpart to
+    declarations.jsonl's labeled span."""
+    session, _ = load_session(FIXTURES_DIR / "anonymous_enroll.jsonl")
+    assert session.enrollment_spans == [EnrollmentSpan(1000, 3000, None, 120, 4, 1000)]
+    assert session.grid_track == [GridSegment(1000, 3000, 120, 4, 1000)]
+    assert session.warnings == []
 
 
 def test_truncated_fixture_recovers():

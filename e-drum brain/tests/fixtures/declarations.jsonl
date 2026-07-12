@@ -1,4 +1,4 @@
-{"type":"meta","schema_version":1,"session_id":"22222222aaaa4bbb8ccc000000000002","start_iso":"2026-07-06T12:00:00+08:00","kit_profile_id":"td02k","user_id":"local","calibration_offset_ms":null}
+{"type":"meta","schema_version":2,"session_id":"22222222aaaa4bbb8ccc000000000002","start_iso":"2026-07-06T12:00:00+08:00","kit_profile_id":"td02k","user_id":"local","calibration_offset_ms":null}
 {"type":"ctrl","t":50,"msg":{"type":"control_change","channel":9,"control":4,"value":88}}
 {"type":"event","t":500,"note":42,"velocity":60,"channel":9}
 {"type":"grid_start","t":1000,"bpm":120,"subdiv":4,"downbeat_t":1000}

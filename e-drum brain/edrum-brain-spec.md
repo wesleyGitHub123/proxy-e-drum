@@ -66,7 +66,7 @@ The analysis is a **pure engine**: records in, results out. No `print`, no `inpu
 Practical layout:
 
 - `engine/` — pure functions and classes: ingest, grade, infer, match, trend. Deterministic, testable, no side effects.
-- `io/` — the `Source` abstraction: `LiveMidiSource` (mido/rtmidi) and `FileSource` (replay a session file). Brain consumes both identically.
+- `io/` — the `Source` abstraction: `LiveMidiSource` (mido/rtmidi) and `FileSource` (replay a session file). Brain consumes both identically. Also `devlink`/`framing` (2026-07-12): the capture-box archive-sync client (`edrum sync`, capture spec §13) — pure transport, lands **byte-identical** session files for `FileSource`; the engine never knows it exists.
 - `cli/` — thin terminal interface that calls the engine and prints/plots.
 - (later) `app/` or `server/` — a different thin interface over the unchanged engine.
 
@@ -87,7 +87,7 @@ Python is the proving ground. If the app later needs the logic on-device, portin
 - `schema_version` (integer), `session_id`, `start_iso` (absolute), `kit_profile_id`, `user_id`
 - `calibration_offset_ms` (nullable): the audio-out + MIDI-in offset **as measured/configured for *this* setup at capture time** (§6). Recorded per session because on a laptop it changes with audio device, buffer size, and OS state, and cannot be reconstructed later — it is capture-time information by the §4.2 test. Never a global constant; `null` = uncalibrated.
 - `grid_track`: list of grid segments `{ start_t, end_t, bpm, grid_subdiv, downbeat_t }`. The app is the **tempo authority**, so each segment's grid is exact, not estimated. Spans not covered by any segment are grid-empty = free play; an empty list = a fully free session. This is a *first-class renderable track* (drawn as gridlines on the roll), which is also why it can't live as buried MIDI tempo meta (→ reinforces 3b).
-- `enrollment_spans`: list of `{ start_t, end_t, profile_ref, bpm, grid_subdiv, downbeat_t }` — present only when enrollment was declared; marks which spans demonstrate which groove and **snapshots the running click** (identically to a grade-span declaration) so Layer C can fold reps into beat-relative space. Without the grid params an enrollment span is uninterpretable, so they are part of the atom, not optional. `profile_ref` is a **stable, user-assigned groove identity**, not a pointer to a computed profile — the profile itself is a *rebuildable derived index* (§6, Layer C) that lives in the cross-session store, **not** in the session file (§1A boundary). A declaration that finds **no click sounding is rejected** (nothing to snapshot); this applies to grade-span and enrollment declarations alike.
+- `enrollment_spans`: list of `{ start_t, end_t, profile_ref, bpm, grid_subdiv, downbeat_t }` — present only when enrollment was declared; marks which spans demonstrate which groove and **snapshots the running click** (identically to a grade-span declaration) so Layer C can fold reps into beat-relative space. Without the grid params an enrollment span is uninterpretable, so they are part of the atom, not optional. `profile_ref` (**nullable, schema v2**) is a **provenance hint supplied by the controller at capture time**, not a welded identity — the same "reassignable, not a welded fact" pattern as `kit_profile_id` below. `null` means no label was supplied (the zero-friction path: a gesture, a hardware button, a quick app action — capture spec §5) and the parsed reduction preserves that honestly rather than synthesizing a placeholder name; naming/renaming an anonymous span, and resolving which spans across sessions share one groove identity, is entirely the brain/UI's job (§6, Layer C) and never rewrites the session file. A declaration that finds **no click sounding is rejected** (nothing to snapshot); this applies to grade-span and enrollment declarations alike.
 - `bookmarks`: list of `t`
 - `events`: the performance track — `{ t, note, velocity }`
 
@@ -308,6 +308,7 @@ Each phase ships something usable and states: brain work, what it asks of captur
 
 ### Phase 5 — Layer C: enrollment & recognition (the star)
 - **Brain:** enrollment convergence (beat-relative profile = skeleton + rendering stats); profile storage **as a rebuildable, provenance-tagged derived index over `enrollment_spans`** (§6 — recomputes on re-normalization or matcher change, never a second source of truth); periodicity-based tempo recovery; query-by-example spotting; rejection threshold; per-groove tempo-conditional stats → Layer-D trend per groove. v1 DTW.
+- **Groove-identity resolution (added, architecture review 2026-07-11):** a small, brain-owned, revisable mapping from anonymous enrollment spans (addressed by `(session_id, start_t)` — already stable, no new ID needed) to a user-assigned groove identity. This is what lets the zero-friction capture path (capture spec §5: gesture/hardware-button enrollment carries no label) still converge multiple anonymous demonstrations of the *same* groove, played across different sessions, into one profile — the user names/merges spans after the fact instead of before starting. It is a rename/merge overlay, not a second source of truth for the spans themselves (§1A), and it never writes back into a session file.
 - **Asks of capture:** profile storage; otherwise brain-side.
 - **Validation:** enroll a groove; replay sessions containing it + decoys; measure detection rate **and false-positive rate** (rejection boundary is the headline metric); confidence surfaced.
 - **Decisions:** DTW vs embeddings and the jump point; rejection threshold calibration; min reps to converge; window/segmentation strategy.
@@ -351,10 +352,11 @@ Validation is therefore not a final step; it's a per-phase obligation (metronomi
 | 3d | Control-message atom | **Resolved:** raw `ctrl` line captured losslessly; HH openness/choke/positional derived from it (§3/§4.1) |
 | 3e | Calibration offset | **Resolved:** per-session `calibration_offset_ms` in meta, subtracted per session (§3/§6) |
 | 3f | Enrollment span grid | **Resolved:** enroll declaration snapshots the click (`bpm/subdiv/downbeat`); declarations require a sounding click (§3/§5) |
+| 3g | Enrollment `profile_ref` optionality | **Resolved (schema v2):** nullable — a provenance hint, not a welded identity; `null` = no label supplied at capture time; groove-identity resolution is a brain-owned, revisable mapping (§3, §6 Phase 5) |
 | 4a | Instrument vocabulary | **Resolved:** ~10 notation lanes frozen; articulation = additive attribute (§4.1) |
 | 4b | Normalization location | **Resolved:** brain-side, re-runnable; device emits raw + reassignable `kit_profile_id` (§4.2) |
 | 4c | Audio replay fidelity | **Resolved:** must-have; velocity/microtiming-faithful, static samples, no articulation engine; Tier-3 export for true timbre (§4B) |
-| 9c | Gesture detection location | Brain/host now; migrate to firmware for standalone box |
+| 9c | Gesture detection location | **Resolved:** firmware (`edrum_core`), a pure state machine over the event stream (capture spec §5) |
 | — | Layer B approach | Heuristic IOI clustering first |
 | — | Layer C matcher | DTW first; embeddings when the work proves it wants you |
 | — | Build order | A → D → B → C |
@@ -380,6 +382,17 @@ Integrated from a principal-architect design review conducted before writing cod
 **Tier 3 (noted, explicitly *do not build yet*):** derived-metric caching (§6 Layer D); SMF export details (§3); live drift indicator constrained to the shared stream (Phase 7); session-store bound to the log format (Phase 2).
 
 Invariants preserved unchanged: engine purity; performance-track/grid-track split; JSON canonical / MIDI export; optional grading; free-and-graded coexistence; statistics on canonical events; incremental roadmap; DTW-first; simplicity over generality.
+
+---
+
+## 13. Enrollment control-surface architecture review (2026-07-11)
+
+A senior-architecture review of the enrollment control path (full detail: capture spec §12). Brain-side implications, implemented:
+
+- **`profile_ref` is nullable (schema v2).** `EnrollStartRecord.profile_ref: str | None` and `EnrollmentSpan.profile_ref: str | None`; `None` means no label was supplied at capture time (the zero-friction gesture/hardware-button path). The fold (`reduce_session`) preserves this honestly — it never synthesizes a display name; that stays a presentation-layer concern (the reference CLI shows a `"(unlabeled)"` placeholder at print time only, never written back).
+- **Why this is a major bump, not free:** `schema_version` is single-integer/major-only, and additive (minor) changes are meant to be free under the ignore-unknown-fields policy (§3). This isn't additive — it changes the *value domain* of an existing, already-shipped field (a v1-only reader assuming `profile_ref` is always a non-empty string would mishandle `null` silently). Per §3's own rule ("any change to the meaning of an existing field bumps major"), `SCHEMA_VERSION` moved 1 → 2. Old v1 files remain fully readable (the reader accepts any version ≤ its own) — only the *producer* contract changed.
+- **Groove identity is resolved brain-side, not at capture time** (§6, Phase 5, above) — an anonymous span is addressed by `(session_id, start_t)`, and naming/merging it into a groove profile is a revisable operation over the profile store, mirroring the existing "reassignable hint, not a welded fact" treatment of `kit_profile_id` (§4.2). This is what makes "start now, name later" actually converge multiple anonymous demonstrations of the same groove instead of leaving each one a permanent singleton.
+- **Golden fixtures:** added `tests/fixtures/anonymous_enroll.jsonl` (new, `profile_ref: null`, schema v2) alongside the existing `declarations.jsonl` (labeled case, byte-frozen, unchanged in content). Bumping `SCHEMA_VERSION` has one unavoidable ripple: the firmware's conformance fixtures are *producible* — the current firmware must reproduce them byte-for-byte — and the firmware always stamps its own build's `kSchemaVersion`. So `minimal.jsonl`, `declarations.jsonl`, and `warmup_no_grid.jsonl` had their `schema_version` field (only that field) bumped 1 → 2 to stay reproducible; `truncated.jsonl` followed suit (it's a torn copy of `minimal.jsonl`); `forward_compat.jsonl` was deliberately left at v1, since it's reader-only and now incidentally also proves old-file backward compatibility under the v2 reader.
 
 ---
 

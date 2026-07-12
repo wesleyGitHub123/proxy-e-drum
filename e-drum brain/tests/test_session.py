@@ -104,6 +104,19 @@ def test_enrollment_span_folds_with_click_snapshot():
     assert s.enrollment_spans == [EnrollmentSpan(1000, 3000, "basic-rock", 120, 4, 1000)]
 
 
+def test_anonymous_enrollment_span_folds_with_none_profile_ref():
+    """No label supplied at capture time folds to profile_ref=None, not a
+    synthesized name — display naming is a presentation-layer concern."""
+    records = [
+        EnrollStartRecord(t=1000, profile_ref=None, bpm=120, subdiv=4, downbeat_t=1000),
+        ev(1100),
+        ev(1600),
+        EnrollEndRecord(t=3000),
+    ]
+    s = reduce_session(make_meta(), records)
+    assert s.enrollment_spans == [EnrollmentSpan(1000, 3000, None, 120, 4, 1000)]
+
+
 def test_dangling_enrollment_auto_closes():
     records = [
         EnrollStartRecord(t=1000, profile_ref="fill-a", bpm=90, subdiv=3, downbeat_t=1000),

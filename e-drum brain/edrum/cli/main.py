@@ -5,6 +5,8 @@ Commands:
     edrum record                   capture a session from a live port
     edrum replay FILE              round-trip byte-identity check (Phase 0 gate)
     edrum dump FILE [--normalized] inspect a session file
+    edrum sync --port COMx         pull session files off the capture box
+                                   (needs [device] extra; capture spec §13)
 
 Any conditional more interesting than argument handling belongs in engine/ or
 io/ — keeping this caller thin is what makes a future app a drop-in second
@@ -174,7 +176,11 @@ def cmd_dump(args) -> int:
             f" downbeat_t={seg.downbeat_t}"
         )
     for span in session.enrollment_spans:
-        print(f"enroll    [{span.start_t}..{span.end_t}] {span.profile_ref!r} bpm={span.bpm}")
+        # Display naming is a presentation-layer concern (architecture
+        # review): the capture log never invents a name, so an unlabeled
+        # span shows a placeholder here rather than `None`.
+        label = span.profile_ref if span.profile_ref is not None else "(unlabeled)"
+        print(f"enroll    [{span.start_t}..{span.end_t}] {label!r} bpm={span.bpm}")
     for t in session.bookmarks:
         print(f"bookmark  t={t}")
     for warning in session.warnings:
@@ -204,6 +210,74 @@ def cmd_dump(args) -> int:
     if limit < len(session.events):
         print(f"  ... {len(session.events) - limit} more event(s)")
     return 0
+
+
+def cmd_sync(args) -> int:
+    """Pull the capture box's session archive over the device link
+    (capture spec §13). Byte-exact replication: a synced file is
+    indistinguishable from a card-reader copy, and the engine never knows
+    this command exists."""
+    try:
+        from edrum.io.devlink import (
+            DeviceClient,
+            DeviceError,
+            DeviceStorageError,
+            SerialByteLink,
+            check_schema_compatible,
+            sync_sessions,
+            wake_console_handoff,
+        )
+    except ImportError as exc:
+        print(f"error: device link unavailable ({exc}). Is the [device] extra installed?")
+        return 1
+
+    try:
+        link = SerialByteLink(args.port, args.baud)
+    except Exception as exc:
+        print(f"error: cannot open serial port {args.port!r}: {exc}")
+        return 1
+
+    try:
+        wake_console_handoff(link)  # console `sync` command -> framed mode
+        client = DeviceClient(link)
+        host_time = datetime.now().astimezone().isoformat(timespec="seconds")
+        info = client.hello(host_time)
+        check_schema_compatible(info)
+        print(f"device    fw {info.fw_build}  schema v{info.schema_version}"
+              f"  proto v{info.proto_version}")
+        print(f"time      set to {host_time}")
+        if not info.storage_ok:
+            print("error: device reports storage FAILED (card missing/full/corrupt).")
+            print("       The box still captures and clicks; fix the card, then re-sync.")
+            client.bye()
+            return 1
+
+        report = sync_sessions(client, Path(args.out))
+        client.bye()
+
+        for name in report.fetched:
+            print(f"fetched   {name}")
+        for name in report.skipped:
+            print(f"skipped   {name} (already synced, checksum verified)")
+        for name in report.conflicts:
+            print(f"CONFLICT  {name} — local file differs from device copy; NOT overwritten")
+        for warning in report.warnings:
+            print(f"warning   {warning}")
+        print(f"done: {len(report.fetched)} fetched, {len(report.skipped)} skipped,"
+              f" {len(report.conflicts)} conflict(s) -> {args.out}")
+        return 0 if report.ok else 1
+    except DeviceStorageError as exc:
+        print(f"error: {exc}")
+        return 1
+    except DeviceError as exc:
+        print(f"error: {exc}")
+        print("hint: is the box on this port, and did the console print '[sync] framed mode'?")
+        return 1
+    finally:
+        try:
+            link.close()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +316,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_dump.add_argument("--limit", type=int, default=None, help="max events to print")
     p_dump.set_defaults(func=cmd_dump)
+
+    p_sync = sub.add_parser("sync", help="pull session files off the capture box")
+    p_sync.add_argument("--port", required=True, help="serial port (e.g. COM5, /dev/ttyUSB0)")
+    p_sync.add_argument("--baud", type=int, default=115200, help="baud rate (default: 115200)")
+    p_sync.add_argument("--out", default="sessions", help="output directory (default: sessions)")
+    p_sync.set_defaults(func=cmd_sync)
 
     return parser
 

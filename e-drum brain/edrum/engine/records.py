@@ -31,7 +31,16 @@ from typing import Union
 
 #: Single integer = MAJOR compatibility only (micro-decision 4). Additive
 #: (minor) evolution is self-describing under the ignore-unknown-fields policy.
-SCHEMA_VERSION = 1
+#:
+#: v2: EnrollStartRecord.profile_ref became nullable (anonymous enrollment —
+#: architecture review, 2026-07-11). This is a MEANING change to an existing
+#: field's value domain, not an additive one, so it earns the major bump
+#: rather than riding in for free: a v1-only reader that assumes profile_ref
+#: is always a non-empty string would mishandle `null` silently, and the
+#: version bump turns that into a clean refusal instead (§3 schema
+#: evolution rule). Old v1 files remain fully readable (this reader accepts
+#: any version <= its own).
+SCHEMA_VERSION = 2
 
 #: System-realtime message types dropped at capture (micro-decision 2).
 #: Transport keepalive, not performance information. All channel-scoped
@@ -203,14 +212,22 @@ class EnrollStartRecord:
     """Enrollment declaration: snapshots the click identically to a grade span (§3/3f)."""
 
     t: int
-    profile_ref: str  # stable, user-assigned groove identity (§3)
+    # Provenance hint supplied by the controller at capture time, not a
+    # welded identity — the same "reassignable hint" pattern as
+    # MetaRecord.kit_profile_id (§4.2). None = no label was supplied
+    # (anonymous enrollment, e.g. gesture/hardware-button start): the log
+    # honestly records the absence rather than inventing one. Groove
+    # identity/renaming is a brain-owned, revisable mapping over
+    # (session_id, start_t), never written back into this record (§3/§6).
+    profile_ref: str | None
     bpm: int | float
     subdiv: int
     downbeat_t: int
 
     def __post_init__(self) -> None:
         _check_t(self.t)
-        _check_str("profile_ref", self.profile_ref)
+        if self.profile_ref is not None:
+            _check_str("profile_ref", self.profile_ref)
         _check_number("bpm", self.bpm)
         if self.bpm <= 0:
             raise RecordError(f"bpm must be > 0, got {self.bpm!r}")

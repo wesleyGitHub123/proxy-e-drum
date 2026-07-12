@@ -50,11 +50,19 @@ class GridSegment:
 
 @dataclass(frozen=True)
 class EnrollmentSpan:
-    """A declared groove demonstration with its click snapshot (spec §3)."""
+    """A declared groove demonstration with its click snapshot (spec §3).
+
+    ``profile_ref`` is None when no label was supplied at capture time
+    (anonymous enrollment) — the parsed reduction preserves that honestly;
+    it is never synthesized here. Assigning/renaming a groove identity for
+    an anonymous span is a brain-owned, revisable operation over
+    (session_id, start_t) that lives outside the session file (Layer C
+    profile store, spec §6), not a presentation default computed on read.
+    """
 
     start_t: int
     end_t: int
-    profile_ref: str
+    profile_ref: str | None
     bpm: int | float
     subdiv: int
     downbeat_t: int

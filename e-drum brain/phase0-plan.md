@@ -112,6 +112,7 @@ from CC4 via `ctrl`.
 - **Non-responsibilities:** no file I/O; no folding; no normalization; no MIDI parsing.
 - **Interface:** `parse_line(line) -> Record`, `to_line(Record) -> bytes` (incl. `\n`), record dataclasses, `SCHEMA_VERSION`.
 - **Data contract:** meta = `{schema_version, session_id, start_iso, kit_profile_id, user_id, calibration_offset_ms|null}`; event = `{type,t,note,velocity[,channel]}`; ctrl = `{type,t,msg}`; grid_start = `{type,t,bpm,subdiv,downbeat_t}`; enroll_start adds `profile_ref`. Declarations fully schematized now (spec §3: "the schema decision is the irreversible part").
+  - **Amendment (2026-07-11, schema v2):** `profile_ref` is nullable — `null` = no label supplied at capture time (anonymous enrollment; brain spec §3/§13). This is the one field-meaning change against the S1 contract as originally frozen here; `SCHEMA_VERSION` moved 1 → 2 accordingly (brain spec §3 schema-evolution rule). The rest of S1's frozen contract (key order, byte form, reader policy) is unchanged.
 - **Extension points:** new line types / fields are additive; `pause`/`resume` reserved via unknown-type tolerance.
 - **Migration risk:** highest in project (permanent corpus). Avoidance: integer major version + ignore-unknown; golden fixtures freeze bytes; files never rewritten.
 

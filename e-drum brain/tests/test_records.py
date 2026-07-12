@@ -36,6 +36,7 @@ ALL_SAMPLE_RECORDS = [
     GridEndRecord(t=4000),
     BookmarkRecord(t=4500),
     EnrollStartRecord(t=5000, profile_ref="basic-rock", bpm=120, subdiv=4, downbeat_t=5000),
+    EnrollStartRecord(t=5100, profile_ref=None, bpm=120, subdiv=4, downbeat_t=5100),
     EnrollEndRecord(t=7000),
     SessionEndRecord(t=8000),
 ]
@@ -134,6 +135,19 @@ def test_grid_start_validation():
 def test_enroll_start_requires_profile_ref():
     with pytest.raises(RecordError):
         EnrollStartRecord(t=1, profile_ref="", bpm=120, subdiv=4, downbeat_t=1)
+
+
+def test_enroll_start_profile_ref_none_is_anonymous_not_invalid():
+    # No label supplied at capture time (gesture/hardware-button/quick-app
+    # path) is a legal, honest state — distinct from the empty string, which
+    # stays rejected above. The capture log must never invent a name.
+    rec = EnrollStartRecord(t=1, profile_ref=None, bpm=120, subdiv=4, downbeat_t=1)
+    assert rec.profile_ref is None
+
+
+def test_enroll_start_anonymous_serializes_to_null():
+    line = to_line(EnrollStartRecord(t=4000, profile_ref=None, bpm=120, subdiv=4, downbeat_t=4000))
+    assert line == b'{"type":"enroll_start","t":4000,"profile_ref":null,"bpm":120,"subdiv":4,"downbeat_t":4000}\n'
 
 
 def test_meta_validation():

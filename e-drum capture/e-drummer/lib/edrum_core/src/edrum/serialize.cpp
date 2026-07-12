@@ -33,14 +33,23 @@ struct Out {
         len += n;
     }
 
-    void integer(int64_t v) {
+  void integer(int64_t v) {
         char tmp[24];
-        const int n = snprintf(tmp, sizeof(tmp), "%lld", (long long)v);
-        if (n <= 0) {
+        int idx = 24;
+        const bool neg = v < 0;
+        uint64_t uv = neg ? (uint64_t)(-(v + 1)) + 1 : (uint64_t)v;
+        do {
+            tmp[--idx] = char('0' + (uv % 10));
+            uv /= 10;
+        } while (uv > 0);
+        if (neg) tmp[--idx] = '-';
+        const size_t n = (size_t)(24 - idx);
+        if (!ok || len + n > cap) {
             ok = false;
             return;
         }
-        raw(tmp);
+        memcpy(buf + len, tmp + idx, n);
+        len += n;
     }
 
     void quoted(const char* s) {

@@ -21,6 +21,12 @@ void post(const ControlMsg& msg) {
     }
 }
 
+void post_diag(const DiagMsg& msg) {
+    if (xQueueSend(app.diag_queue, &msg, 0) != pdTRUE) {
+        Serial.println("[console] busy: diag queue full, try again");
+    }
+}
+
 void print_stats() {
     const Counters& c = app.counters;
     Serial.println("---- stats ----------------------------------------------------");
@@ -44,10 +50,11 @@ void print_stats() {
     Serial.printf("ring     depth=%lu high_water=%lu/%lu DROPS=%lu   (must stay 0)\n",
                   (unsigned long)app.ring.size(), (unsigned long)app.ring.high_water(),
                   (unsigned long)app.ring.capacity(), (unsigned long)c.ring_drops);
-    Serial.printf("storage  lines=%lu bytes=%lu syncs=%lu errors=%lu files=%lu\n",
+    Serial.printf("storage  lines=%lu bytes=%lu syncs=%lu errors=%lu discarded=%lu files=%lu%s\n",
                   (unsigned long)c.storage_lines, (unsigned long)c.storage_bytes,
                   (unsigned long)c.storage_syncs, (unsigned long)c.storage_write_errors,
-                  (unsigned long)c.files_opened);
+                  (unsigned long)c.storage_discarded, (unsigned long)c.files_opened,
+                  app.writer->failed() ? "  [FAIL-SOFT: discarding]" : "");
     Serial.printf("         stall max=%luus >50ms=%lu serialize_err=%lu (Experiment 3)\n",
                   (unsigned long)c.write_stall_max_us, (unsigned long)c.write_stall_over_50ms,
                   (unsigned long)c.serialize_errors);
@@ -151,20 +158,40 @@ void execute(const Command& cmd) {
             break;
         }
         case Command::Kind::Burst: {
-            ControlMsg msg{};
-            msg.op = ControlMsg::Op::Burst;
-            msg.burst_count = cmd.burst_count;
-            msg.burst_hz = cmd.burst_hz;
-            post(msg);
+            DiagMsg msg{cmd.burst_count, cmd.burst_hz};
+            post_diag(msg);
             break;
         }
+        case Command::Kind::SyncEnter:
+            // Decision 1: hand the line to the framed protocol. This is the
+            // last console text until BYE or idle timeout; the storage task
+            // pumps the link from here on and clears the flag when done.
+            Serial.println(
+                "[sync] framed mode: console suspended (host: `edrum sync`; "
+                "auto-exit on BYE or 10 s idle)");
+            Serial.flush();
+            app.sync_mode = true;
+            break;
     }
 }
 
 }  // namespace
 
 void console_poll() {
-    while (Serial.available() > 0) {
+    static bool suspended = false;
+    if (app.sync_mode) {
+        // Framed mode: the storage task owns the line (decision 1). Reading
+        // here would steal protocol bytes — do nothing until it hands back.
+        suspended = true;
+        return;
+    }
+    if (suspended) {
+        suspended = false;
+        line_len = 0;  // drop any partial pre-sync input
+        Serial.println("[sync] done — console restored");
+    }
+
+    while (!app.sync_mode && Serial.available() > 0) {
         const char c = (char)Serial.read();
         if (c == '\n' || c == '\r') {
             if (line_len > 0) {

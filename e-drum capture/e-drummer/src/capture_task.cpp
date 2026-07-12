@@ -2,9 +2,12 @@
 // realtime path. One loop iteration:
 //   1. usb->poll(): client events + transfer completions (stamp -> parse ->
 //      classify -> FSM -> ring, all inside this task's context)
-//   2. drain the control queue (console/gesture declarations)
-//   3. step the synthetic burst generator (Experiment 3)
-//   4. FSM tick (auto-pause / idle-end) + gesture sequence poll
+//   2. drain the control queue (console/gesture/future-controller
+//      declarations) through the single ControlDispatcher
+//   3. drain the diag queue (Experiment 3 synthetic burst)
+//   4. step the synthetic burst generator
+//   5. FSM tick (auto-pause / idle-end) + gesture sequence poll, itself
+//      routed through the same ControlDispatcher as every other controller
 #include "app.h"
 
 #include "edrum/classify.h"
@@ -36,10 +39,12 @@ struct CaptureSink : platform::UsbHostMidi::Sink {
 
     void on_device(bool connected) override {
         // Session continues across an unplug; the idle failsafe ends it.
+        if (app.sync_mode) return;  // never interleave text into a frame
         Serial.println(connected ? "[usb] kit streaming" : "[usb] kit disconnected");
     }
 
     void on_status(const char* msg) override {
+        if (app.sync_mode) return;  // never interleave text into a frame
         Serial.print('[');
         Serial.print(millis());
         Serial.print("] ");
@@ -48,6 +53,27 @@ struct CaptureSink : platform::UsbHostMidi::Sink {
 };
 
 CaptureSink sink;
+
+// Adapts the spinlock-shared click scheduler to hal::IClickSnapshot so
+// ControlDispatcher (edrum_core, portable) never touches app.click_sched or
+// the FreeRTOS spinlock directly.
+struct ClickSnapshotAdapter : hal::IClickSnapshot {
+    bool snapshot(uint64_t now_us, uint16_t* bpm, uint8_t* subdiv,
+                 uint64_t* downbeat_us) override {
+        bool ok;
+        taskENTER_CRITICAL(&app.click_mux);
+        ok = app.click_sched.running();
+        if (ok) {
+            *bpm = app.click_sched.bpm();
+            *subdiv = app.click_sched.subdiv();
+            *downbeat_us = app.click_sched.next_edge_at_or_after(now_us);
+        }
+        taskEXIT_CRITICAL(&app.click_mux);
+        return ok;
+    }
+};
+
+ClickSnapshotAdapter click_snapshot_adapter;
 
 // Experiment 3 synthetic producer: emits through the REAL path (FSM -> ring
 // -> LogWriter -> SD) so measured stalls are the production stalls.
@@ -58,94 +84,48 @@ struct BurstState {
     bool note_toggle = false;
 } burst;
 
-// Snapshot the running click for a grid/enroll declaration (capture spec §5:
-// declarations snapshot the RUNNING click). Returns false if no click.
-bool click_snapshot(uint64_t now_us, uint16_t* bpm, uint8_t* subdiv, uint64_t* downbeat_us) {
-    bool ok;
-    taskENTER_CRITICAL(&app.click_mux);
-    ok = app.click_sched.running();
-    if (ok) {
-        *bpm = app.click_sched.bpm();
-        *subdiv = app.click_sched.subdiv();
-        *downbeat_us = app.click_sched.next_edge_at_or_after(now_us);
-    }
-    taskEXIT_CRITICAL(&app.click_mux);
-    return ok;
-}
-
-void do_grid_start(uint64_t now_us) {
-    uint16_t bpm;
-    uint8_t subdiv;
-    uint64_t downbeat_us;
-    if (!click_snapshot(now_us, &bpm, &subdiv, &downbeat_us)) {
-        Serial.println("[grid] refused: no running click to snapshot (start one: click <bpm>)");
-        return;
-    }
-    app.fsm->grid_start(now_us, bpm, subdiv, downbeat_us);
-    Serial.printf("[grid] span open @ %u bpm /%u\n", (unsigned)bpm, (unsigned)subdiv);
-}
-
-void handle_control(const ControlMsg& msg, uint64_t now_us) {
-    switch (msg.op) {
-        case ControlMsg::Op::Bookmark:
-            app.fsm->bookmark(now_us);
+// The dispatcher does no I/O itself (engine-purity discipline); this is
+// where its ControlResult becomes the operator-facing console message.
+// During framed sync mode the declaration still applied — only the print is
+// suppressed (text inside a frame would corrupt it, decision 1).
+void report_control(const ControlResult& r) {
+    if (app.sync_mode) return;
+    switch (r.outcome) {
+        case ControlOutcome::BookmarkAdded:
             Serial.println("[mark] bookmark");
             break;
-        case ControlMsg::Op::GridStart:
-            do_grid_start(now_us);
+        case ControlOutcome::GridOpened:
+            Serial.printf("[grid] span open @ %u bpm /%u\n", (unsigned)r.bpm,
+                          (unsigned)r.subdiv);
             break;
-        case ControlMsg::Op::GridEnd:
-            Serial.println(app.fsm->grid_end(now_us) ? "[grid] span closed"
-                                                     : "[grid] no span open");
+        case ControlOutcome::GridRefusedNoClick:
+            Serial.println("[grid] refused: no running click to snapshot (start one: click <bpm>)");
             break;
-        case ControlMsg::Op::GridToggle:
-            if (app.fsm->grid_open()) {
-                app.fsm->grid_end(now_us);
-                Serial.println("[grid] span closed (gesture)");
+        case ControlOutcome::GridClosed:
+            Serial.println("[grid] span closed");
+            break;
+        case ControlOutcome::GridNoSpanOpen:
+            Serial.println("[grid] no span open");
+            break;
+        case ControlOutcome::EnrollOpened:
+            if (r.ref[0] != '\0') {
+                Serial.printf("[enroll] span open: %s\n", r.ref);
             } else {
-                do_grid_start(now_us);
+                Serial.println("[enroll] span open (anonymous — name it later in the brain/UI)");
             }
             break;
-        case ControlMsg::Op::EnrollStart: {
-            uint16_t bpm;
-            uint8_t subdiv;
-            uint64_t downbeat_us;
-            if (!click_snapshot(now_us, &bpm, &subdiv, &downbeat_us)) {
-                Serial.println("[enroll] refused: no running click to snapshot");
-                break;
-            }
-            app.fsm->enroll_start(now_us, msg.ref, bpm, subdiv, downbeat_us);
-            Serial.printf("[enroll] span open: %s\n", msg.ref);
+        case ControlOutcome::EnrollRefusedNoClick:
+            Serial.println("[enroll] refused: no running click to snapshot");
             break;
-        }
-        case ControlMsg::Op::EnrollEnd:
-            Serial.println(app.fsm->enroll_end(now_us) ? "[enroll] span closed"
-                                                       : "[enroll] no span open");
+        case ControlOutcome::EnrollClosed:
+            Serial.println("[enroll] span closed");
             break;
-        case ControlMsg::Op::EndSession:
-            app.fsm->end_session(now_us);
-            app.gestures->reset();
+        case ControlOutcome::EnrollNoSpanOpen:
+            Serial.println("[enroll] no span open");
+            break;
+        case ControlOutcome::SessionEnded:
             Serial.println("[session] ended");
             break;
-        case ControlMsg::Op::Burst:
-            burst.remaining = msg.burst_count;
-            burst.interval_us = 1000000ULL / msg.burst_hz;
-            burst.next_us = now_us;
-            Serial.printf("[burst] %lu synthetic events @ %u Hz through the real path\n",
-                          (unsigned long)msg.burst_count, (unsigned)msg.burst_hz);
-            break;
-    }
-}
-
-void step_burst(uint64_t now_us) {
-    while (burst.remaining > 0 && now_us >= burst.next_us) {
-        burst.note_toggle = !burst.note_toggle;
-        app.fsm->on_event(burst.next_us, burst.note_toggle ? 38 : 36,
-                          (uint8_t)(64 + (burst.remaining % 60)), 9);
-        burst.next_us += burst.interval_us;
-        if (--burst.remaining == 0) {
-            Serial.println("[burst] done — check `stats` for stall/backlog numbers");
-        }
     }
 }
 
@@ -160,26 +140,58 @@ void capture_task(void*) {
         return;
     }
 
+    static ControlDispatcher dispatcher(*app.fsm, click_snapshot_adapter, *app.gestures);
+
     ControlMsg msg;
+    DiagMsg dmsg;
     while (true) {
         app.usb->poll(appcfg::kCapturePollMs);
 
         while (xQueueReceive(app.control_queue, &msg, 0) == pdTRUE) {
-            handle_control(msg, app.clock.now_us());
+            report_control(dispatcher.dispatch(msg, app.clock.now_us()));
+        }
+        while (xQueueReceive(app.diag_queue, &dmsg, 0) == pdTRUE) {
+            burst.remaining = dmsg.burst_count;
+            burst.interval_us = 1000000ULL / dmsg.burst_hz;
+            burst.next_us = app.clock.now_us();
+            if (!app.sync_mode) {
+                Serial.printf("[burst] %lu synthetic events @ %u Hz through the real path\n",
+                              (unsigned long)dmsg.burst_count, (unsigned)dmsg.burst_hz);
+            }
         }
 
         const uint64_t now = app.clock.now_us();
-        step_burst(now);
+        while (burst.remaining > 0 && now >= burst.next_us) {
+            burst.note_toggle = !burst.note_toggle;
+            app.fsm->on_event(burst.next_us, burst.note_toggle ? 38 : 36,
+                              (uint8_t)(64 + (burst.remaining % 60)), 9);
+            burst.next_us += burst.interval_us;
+            if (--burst.remaining == 0 && !app.sync_mode) {
+                Serial.println("[burst] done — check `stats` for stall/backlog numbers");
+            }
+        }
         app.fsm->tick(now);
 
         const GestureDetector::Action act = app.gestures->poll((uint32_t)(now / 1000));
-        if (act == GestureDetector::Action::Bookmark) {
-            app.fsm->bookmark(now);
-            Serial.println("[mark] bookmark (gesture)");
-        } else if (act == GestureDetector::Action::GridToggle) {
-            ControlMsg toggle{};
-            toggle.op = ControlMsg::Op::GridToggle;
-            handle_control(toggle, now);
+        ControlMsg gmsg{};
+        bool has_gesture = true;
+        switch (act) {
+            case GestureDetector::Action::Bookmark:
+                gmsg.op = ControlMsg::Op::Bookmark;
+                break;
+            case GestureDetector::Action::GridToggle:
+                gmsg.op = ControlMsg::Op::GridToggle;
+                break;
+            case GestureDetector::Action::EnrollToggle:
+                gmsg.op = ControlMsg::Op::EnrollToggle;
+                break;
+            case GestureDetector::Action::None:
+            default:
+                has_gesture = false;
+                break;
+        }
+        if (has_gesture) {
+            report_control(dispatcher.dispatch(gmsg, now));
         }
     }
 }

@@ -4,16 +4,20 @@
 // within a tight window — repeated with short gaps, deliberately
 // un-playable by accident (Jamcorder's black-keys-twice precedent):
 //
-//   chord x2  ->  Bookmark
-//   chord x3  ->  GridToggle (declare/end a grade span against the running click)
+//   chord x2      ->  Bookmark
+//   chord x3      ->  GridToggle    (declare/end a grade span against the running click)
+//   chord x4(+)   ->  EnrollToggle  (declare/end an enrollment span; always
+//                                    anonymous — a gesture has no label to
+//                                    offer, so this is the zero-friction
+//                                    path; naming happens brain/UI-side)
 //
 // Sessions need no start gesture (they auto-start on the first hit) and end
 // via the idle failsafe or console — so the gesture budget is spent on the
-// two things a drummer wants mid-flow without reaching for a keyboard.
+// three things a drummer wants mid-flow without reaching for a keyboard.
 //
 // Emission happens when the sequence times out (`seq_gap_ms` after the last
-// chord) so a 3-chord run is not mistaken for 2 — poll() drives that from
-// the capture task's tick.
+// chord) so e.g. a 3-chord run is not mistaken for 2 — poll() drives that
+// from the capture task's tick.
 #pragma once
 
 #include <stdint.h>
@@ -31,7 +35,7 @@ public:
         uint16_t seq_gap_ms = 700;   // max gap between chords; also emit delay
     };
 
-    enum class Action : uint8_t { None, Bookmark, GridToggle };
+    enum class Action : uint8_t { None, Bookmark, GridToggle, EnrollToggle };
 
     explicit GestureDetector(const Cfg& cfg) : cfg_(cfg) {}
 

@@ -19,6 +19,7 @@ static void test_simple_commands(void) {
     TEST_ASSERT_TRUE(parse_command("time").kind == Kind::Time);
     TEST_ASSERT_TRUE(parse_command("bookmark").kind == Kind::Bookmark);
     TEST_ASSERT_TRUE(parse_command("end").kind == Kind::EndSession);
+    TEST_ASSERT_TRUE(parse_command("sync").kind == Kind::SyncEnter);
     TEST_ASSERT_TRUE(parse_command("bogus").kind == Kind::Invalid);
 }
 
@@ -47,7 +48,12 @@ static void test_grid_enroll(void) {
     TEST_ASSERT_TRUE(c.kind == Kind::EnrollStart);
     TEST_ASSERT_EQUAL_STRING("basic-rock", c.ref);
     TEST_ASSERT_TRUE(parse_command("enroll end").kind == Kind::EnrollEnd);
-    TEST_ASSERT_TRUE(parse_command("enroll").kind == Kind::Invalid);
+
+    // bare `enroll`: zero-friction anonymous start, not an error (the whole
+    // point — naming is never a precondition for starting a span)
+    c = parse_command("enroll");
+    TEST_ASSERT_TRUE(c.kind == Kind::EnrollStart);
+    TEST_ASSERT_EQUAL_STRING("", c.ref);
 }
 
 static void test_settime(void) {

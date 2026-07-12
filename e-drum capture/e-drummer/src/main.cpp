@@ -101,11 +101,27 @@ void setup() {
                                               appcfg::kI2sDout);
     app.audio = &audio;
     app.audio_ok = audio.begin(appcfg::kSampleRate);
-    if (app.audio_ok) click_render.begin(appcfg::kSampleRate);
-    Serial.printf("[i2s] %s\n", app.audio_ok ? "DAC ready (click -> TD-02 MIX IN)"
-                                             : "INIT FAILED — click disabled");
+    // click_gain is a knob for THIS hardware chain (PCM5102 -> MIX IN level
+    // matching, decision 2) — applied here, never brain-side data.
+    if (app.audio_ok) click_render.begin(appcfg::kSampleRate, app.cfg.click_gain);
+    Serial.printf("[i2s] %s (gain %u%%)\n",
+                  app.audio_ok ? "DAC ready (click -> TD-02 MIX IN)"
+                               : "INIT FAILED — click disabled",
+                  (unsigned)app.cfg.click_gain);
 
-    app.control_queue = xQueueCreate(appcfg::kControlQueueLen, sizeof(ControlMsg));
+    // device<->brain sync link (capture spec §13): serial transport #1 over
+    // the console line, modally arbitrated (decision 1)
+    static edrum::platform::SerialLink link(Serial);
+    app.link = &link;
+    edrum::SyncService::Cfg scfg;
+    scfg.proto_version = edrum::sync::kProtoVersion;
+    scfg.schema_version = (uint8_t)edrum::kSchemaVersion;
+    scfg.fw_build = __DATE__ " " __TIME__;
+    static edrum::SyncService sync_service(scfg, app.storage);
+    app.sync = &sync_service;
+
+    app.control_queue = xQueueCreate(appcfg::kControlQueueLen, sizeof(edrum::ControlMsg));
+    app.diag_queue = xQueueCreate(appcfg::kControlQueueLen, sizeof(DiagMsg));
 
     xTaskCreatePinnedToCore(storage_task, "storage", 6144, nullptr,
                             appcfg::kStoragePrio, nullptr, appcfg::kStorageCore);

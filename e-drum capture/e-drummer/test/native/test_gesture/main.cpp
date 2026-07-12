@@ -42,6 +42,15 @@ static void test_three_chords_grid_toggle(void) {
     TEST_ASSERT_TRUE(g.poll(2800) == GestureDetector::Action::GridToggle);
 }
 
+static void test_four_chords_enroll_toggle(void) {
+    GestureDetector g(cfg());
+    chord(g, 1000);
+    chord(g, 1500);
+    chord(g, 2000);
+    chord(g, 2500);
+    TEST_ASSERT_TRUE(g.poll(3300) == GestureDetector::Action::EnrollToggle);
+}
+
 static void test_single_chord_is_just_playing(void) {
     GestureDetector g(cfg());
     chord(g, 1000);
@@ -91,6 +100,7 @@ int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_two_chords_bookmark);
     RUN_TEST(test_three_chords_grid_toggle);
+    RUN_TEST(test_four_chords_enroll_toggle);
     RUN_TEST(test_single_chord_is_just_playing);
     RUN_TEST(test_slow_pair_no_chord);
     RUN_TEST(test_stale_sequence_restarts);

@@ -24,10 +24,13 @@ struct Command {
         GridStart,   // grid start
         GridEnd,     // grid end
         Bookmark,    // bookmark
-        EnrollStart, // enroll basic-rock
+        EnrollStart, // enroll basic-rock | enroll (anonymous, ref empty)
         EnrollEnd,   // enroll end
         EndSession,  // end
         Burst,       // burst 2000 [500]   (count, events/sec)
+        SyncEnter,   // sync — hand the line to the framed sync protocol
+                     // (decision 1: modal switch; console suspended until
+                     // BYE or idle timeout)
     };
 
     Kind kind = Kind::None;

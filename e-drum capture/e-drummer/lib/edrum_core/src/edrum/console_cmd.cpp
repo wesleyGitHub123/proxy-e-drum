@@ -50,10 +50,13 @@ const char* console_help() {
         "  click off                stop the click\n"
         "  grid start | grid end    declare a graded span (needs running click)\n"
         "  bookmark                 drop a bookmark\n"
-        "  enroll <name>            start groove enrollment span\n"
+        "  enroll [name]            start groove enrollment span (unlabeled if no name)\n"
         "  enroll end               end enrollment span\n"
         "  end                      end the session now\n"
         "  burst <count> [hz]       synthetic event burst (Experiment 3)\n"
+        "  sync                     hand this line to the host sync protocol\n"
+        "                           (run `edrum sync` on the host; console\n"
+        "                           returns after BYE or 10 s idle)\n"
         "  help                     this text";
 }
 
@@ -110,16 +113,20 @@ Command parse_command(const char* line) {
     } else if (strcmp(tok[0], "bookmark") == 0) {
         cmd.kind = Command::Kind::Bookmark;
     } else if (strcmp(tok[0], "enroll") == 0) {
-        if (n == 2 && strcmp(tok[1], "end") == 0) {
+        if (n == 1) {
+            cmd.kind = Command::Kind::EnrollStart;  // no name: anonymous
+        } else if (n == 2 && strcmp(tok[1], "end") == 0) {
             cmd.kind = Command::Kind::EnrollEnd;
         } else if (n == 2 && valid_ref(tok[1])) {
             cmd.kind = Command::Kind::EnrollStart;
             strncpy(cmd.ref, tok[1], kProfileRefMax);
         } else {
-            return invalid("usage: enroll <name> | enroll end");
+            return invalid("usage: enroll [name] | enroll end");
         }
     } else if (strcmp(tok[0], "end") == 0) {
         cmd.kind = Command::Kind::EndSession;
+    } else if (strcmp(tok[0], "sync") == 0) {
+        cmd.kind = Command::Kind::SyncEnter;
     } else if (strcmp(tok[0], "burst") == 0) {
         uint32_t count = 0, hz = 500;
         if (n < 2 || !to_u32(tok[1], &count, 1, 1000000)) {

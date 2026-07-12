@@ -22,26 +22,32 @@ lib/edrum_core/        PURE C++14 — no Arduino/ESP-IDF anywhere (the "engine")
   edrum/logwriter.*      storage policy: open/meta/append/sync/close
   edrum/click_sched.h    beat-edge arithmetic (integer, drift-free)
   edrum/click_render.*   click → 1 ms PCM blocks
-  edrum/gesture.*        kick+crash chord grammar (bookmark / grid toggle)
+  edrum/gesture.*        kick+crash chord grammar (bookmark / grid / enroll toggle)
+  edrum/control_msg.h    ControlMsg/ControlResult — the source-agnostic control vocabulary
+  edrum/control_dispatch.* ControlDispatcher: ControlMsg → SessionController (the one caller)
+  edrum/frame.*          COBS + CRC-16 wire framing (brain mirror: io/framing.py)
+  edrum/sync_service.*   session-archive sync protocol, device side (spec §13)
   edrum/console_cmd.*    console grammar (parsing only)
   edrum/config.*         key=value /config.txt parser
   edrum/timefmt.*        ISO-8601, epoch math, session filenames, uuid4
   edrum/hal/ports.h      IClock IWallClock IRandom IStorage IAudioOut
+                         IByteLink ISessionArchive IClickSnapshot
 
 lib/edrum_platform/    ESP32-only adapters (the ONLY hardware code)
   esp32_clock.h          esp_timer → IClock          (the one clock, spec §3)
   usb_host_midi.*        native USB host → stamped MidiMsg callbacks
-  sd_storage.h           SdFat SPI microSD → IStorage
+  sd_storage.h           SdFat SPI microSD → IStorage + ISessionArchive
   esp32_wallclock.h      system time + NVS ordering checkpoint → IWallClock
   i2s_click_out.h        legacy I2S driver → IAudioOut (DAC → TD-02 MIX IN)
+  serial_link.h          console line → IByteLink (sync transport #1, spec §13)
   esp32_random.h         esp_random → IRandom
 
 src/                   composition root + tasks (thin; zero domain logic)
   main.cpp               construct once, wire ports, start tasks
   capture_task.cpp       core 0: USB poll → classify → FSM → ring  [producer]
-  storage_task.cpp       core 1: ring → LogWriter → SD             [consumer]
+  storage_task.cpp       core 1: ring → LogWriter → SD; sync pump  [consumer]
   click_task.cpp         core 0: schedule → I2S (tempo authority)
-  console.cpp            core 1 (loop): serial console
+  console.cpp            core 1 (loop): serial console (modal ↔ sync)
 
 test/native/           runs on the laptop, no hardware: pio test -e native
 test/embedded/         on-target smoke: pio test -e esp32-s3-devkitc-1
@@ -55,9 +61,13 @@ tools/gen_fixture_header.py   embeds the brain's golden fixtures into the
 ```
 TD-02 ──USB──► usb_host_midi ──stamp t FIRST──► parser ► classify ─┬─► session FSM ─► ring
                                                                    │      ▲    ▲
-console (loop, core 1) ──ControlMsg queue──► capture task ─────────┘      │    │
-gestures (kick+crash chords) ─────────────────────────────────────────────┘    │
+console (loop, core 1) ──ControlMsg queue──► ControlDispatcher ────┘      │    │
+gestures (kick+crash chords) ──ControlMsg (in-process)──► ControlDispatcher ───┘
 click task ◄─ click_sched (same IClock) — declarations snapshot it ────────────┘
+
+Any future controller (desktop/mobile app, hardware button, BLE, network
+API) is just another ControlMsg producer feeding the same ControlDispatcher
+— the session FSM never sees a controller, only FSM method calls.
 
 ring ──► storage task ──► LogWriter ──► SdFat ──► /sessions/YYYYMMDDTHHMMSS_<id8>.jsonl
                                                    └─ readable by `edrum replay` / `dump`
@@ -90,6 +100,7 @@ pio test -e esp32-s3-devkitc-1   # on-target smoke test
 | `grid start` / `grid end` | declare a graded span (snapshots the running click) |
 | `bookmark`, `enroll <name>`, `enroll end`, `end` | declarations / session end |
 | `burst 2000 500` | Experiment 3: synthetic events through the real path |
+| `sync` | hand the line to the host sync protocol (`edrum sync`); console returns on BYE / 10 s idle |
 
 Gestures (during play, no keyboard): **kick+crash ×2** = bookmark,
 **kick+crash ×3** = grid toggle.
@@ -104,6 +115,8 @@ calibration_offset_ms = null    # per-session meta (capture spec §4)
 tz_offset_min = 480             # +08:00
 click_bpm = 120
 click_subdiv = 4
+click_gain = 50                 # 0-100 % into TD-02 MIX IN (this chain's knob,
+                                # firmware-local — never brain/profile data)
 pause_after_ms = 3000           # event silence before ctrl-caching
 idle_end_ms = 300000            # idle failsafe: session_end after 5 min
 gesture_enable = on
@@ -141,6 +154,29 @@ Chosen to avoid USB (19/20), flash (26–32), octal PSRAM (33–37), strapping
 * **Experiment 6 (ADR-6, concurrency)** — play + click + burst
   simultaneously; watch `DROPS`, `click late_max`, watchdog silence.
 
+## Syncing sessions to the brain (spec §13)
+
+The box is the writer-of-record; the brain replicates its archive
+**byte-exactly** — a synced file is indistinguishable from a card-reader
+copy (which remains the zero-code fallback transport). From the brain
+directory, with the `[device]` extra installed (`pip install -e ".[device]"`):
+
+```powershell
+.\.venv\Scripts\edrum.exe sync --port COM5          # -> sessions\*.jsonl
+```
+
+The CLI types `sync` into the console itself, handshakes (injecting host
+wall time — every sync heals ADR-5 dating), lists closed sessions, fetches
+what's missing (resumable, CRC-verified), and never overwrites an existing
+local file. Dead/full/corrupt card: the box keeps capturing and clicking
+(fail-soft; `stats` shows `discarded` + `[FAIL-SOFT]`), and sync reports an
+explicit storage-failed error instead of hanging. Wire discipline (COBS +
+CRC-16) is mirrored in `edrum/io/framing.py`; the shared test vectors
+(`test_frame` ↔ `test_devlink.py`) are the cross-language contract.
+
+v1 limits (documented): closed sessions only; `LIST` caps at 64 files —
+sync (or archive off) the card before it accumulates more.
+
 ## Conformance to the brain (the seam)
 
 `test/native/test_conformance` rebuilds the brain's byte-frozen golden
@@ -148,7 +184,7 @@ fixtures (`e-drum brain/tests/fixtures/*.jsonl`) through this firmware's
 serializer and compares **whole files byte-for-byte** — the fixtures header
 is generated from the brain's copies by `tools/gen_fixture_header.py`, never
 hand-copied. The end-to-end gate for the physical box stays what the spec
-says it is: record a real session, then
+says it is: record a real session, sync (or card-copy) it over, then
 
 ```powershell
 .\.venv\Scripts\edrum.exe replay sessions\<file>.jsonl    # byte round-trip PASS

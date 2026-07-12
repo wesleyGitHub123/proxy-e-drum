@@ -72,6 +72,8 @@ The device generates the click and **owns the grid**, because the app/device bei
 
 **TD-02 specifics (verified from the module manual):** the TD-02's internal metronome is **audio-only — not transmitted over MIDI** — and the module has **no external MIDI-clock sync**. So you cannot slave the Roland's metronome to the device; the device owns the click entirely. **Turn the Roland's internal metronome OFF** so two independent clocks don't phase against each other.
 
+**PCM5102 bring-up (implemented in firmware; ⚠ VERIFY at wiring, 2026-07-12).** The I2S adapter deliberately emits **no MCLK**, so the PCM5102A must run in PLL mode: **SCK tied to GND** (floating SCK = silent DAC — trap #1); **XSMT high** (un-mute — trap #2); FMT = I2S, DEMP off, FLT normal (breakout solder-jumper names vary — ⚠ VERIFY against the actual board). 16-bit stereo @ 48 kHz is in-range; the 4×64-frame DMA (~5.3 ms) is constant latency and lands in `calibration_offset_ms`. **`click_gain`** (`/config.txt`, 0–100 %, default 50) scales the pre-rendered voices at init: PCM5102A full-scale is ~2.1 Vrms — hotter than the MIX IN wants — and the level that sits right in the TD-02's mix is a *setup* property of this hardware chain, so it is a **firmware-local knob** (never brain/kit-profile data; replacing the DAC re-tunes it here and nowhere else).
+
 ---
 
 ## 4A. Laptop-phase capture — the *first* implementation of the capture half
@@ -91,11 +93,15 @@ The one-clock rule (§3) and the click (§4) are correctness requirements of the
 
 The device needs a control channel for the declarations and boundaries the brain relies on. In the laptop phase this lives in the host; in the standalone box it migrates to firmware (**DECISION 9c**, below).
 
-**Gesture grammar (over the event stream):** session start/stop, bookmark, grade-span start/end, enroll-start/stop. Each is a played pattern chosen to be **un-playable by accident** (e.g. kick+crash×2 to start, per Jamcorder's black-keys-twice precedent; kick=36, crash=49 in the TD-02 map). This is **distinct** from the metronome/tempo control (a knob/app setting that sounds the click and sets BPM/subdivision but writes nothing).
+**Gesture grammar (over the event stream):** session start/stop, bookmark, grade-span start/end, enroll-start/stop. Each is a played pattern chosen to be **un-playable by accident** (e.g. kick+crash×2 to start, per Jamcorder's black-keys-twice precedent; kick=36, crash=49 in the TD-02 map). Implemented as kick+crash chord *repetitions*, timed out after a gap so a longer run isn't mistaken for a shorter one: ×2 = bookmark, ×3 = grade-span toggle, ×4(+) = enroll-span toggle. This is **distinct** from the metronome/tempo control (a knob/app setting that sounds the click and sets BPM/subdivision but writes nothing).
 
 **Session boundaries:** gesture start/stop + an **idle-timeout failsafe** for session end.
 
-**DECISION 9c — where gesture detection lives:** host/brain now (trivial in Python over the live stream) vs. firmware in the standalone box (a state machine over the ISR event stream). This is the capture/brain boundary decision; resolve it when the box spike starts.
+**DECISION 9c — where gesture detection lives: RESOLVED for the firmware side.** Gesture detection is a pure state machine over the event stream living in firmware (`edrum_core`, hardware-free, natively tested) — not the host/brain. It was trivial enough in practice to implement directly against the box's own event stream rather than staging it in Python first.
+
+**The control-message vocabulary is source-agnostic by construction (architecture review, 2026-07-11).** Console commands, gestures, and any future controller (desktop/mobile app, hardware button, BLE, network API) all construct the same portable `ControlMsg` (bookmark / grid start-end-toggle / enroll start-end-toggle / end session) and hand it to a single dispatcher, which is the only thing that ever calls into the session FSM. The FSM itself never sees a `ControlMsg` and never knows a controller exists — adding a new controller means teaching it to construct this vocabulary, never touching FSM or dispatch logic. A diagnostic/test-harness command (the synthetic burst load generator, Experiment 3) is deliberately excluded from this vocabulary — it's a firmware self-test concern, not a session declaration any real controller should need to know about.
+
+**Enrollment labeling is optional, and the distinction is honest, not synthesized.** Starting an enrollment span is zero-friction — architecturally the same class as bookmark and grade-span start: no name is required to begin one. If a controller supplies a label (e.g. the CLI's `enroll shuffle`), it is recorded as provenance on the `enroll_start` declaration. If no label is supplied (a toggle gesture, a hardware button, a quick app action — anything with no label slot to offer), the declaration's `profile_ref` is `null` — the capture log honestly represents "no provenance," never a synthesized placeholder like "Enrollment 1". That kind of default naming, along with any later renaming, is entirely the brain/UI's responsibility (brain spec §3/§6): capture-time `profile_ref` is a provenance *hint*, not a welded identity commitment, the same "reassignable, not a welded fact" pattern already used for `kit_profile_id` (§7).
 
 ---
 
@@ -170,15 +176,17 @@ Kit → **Tank-G** (M-VAVE guitar multi-FX, used as clean pass-through + monitor
 
 | ID | Decision | Status / call |
 |---|---|---|
-| 9c | Gesture detection location | Host/brain now; migrate to firmware for standalone box |
+| 9c | Gesture detection location | **Resolved:** firmware (`edrum_core`), a pure state machine over the event stream — not staged in the host/brain first (§5) |
 | — | Host method | Native S3 host (simplest) vs. MAX3421E (decoupled/educational, bigger) — pick when the box spike starts |
 | — | Board | Nano (owned, franken final) vs. DevKitC-1 (~₱400, clean flashing + receptacle) vs. CAM (onboard SD, ⚠ verify pins/docs) |
 | — | Debug/flash transport | UART dongle + auto-reset circuit vs. two-port bridge vs. WiFi-log + OTA |
 | — | VBUS injection | Powered/Y-OTG adapter (works on all boards); board-5 V jumper only if ⚠ verified on your unit |
 | — | Storage | External SPI SD module vs. CAM onboard SDMMC (⚠ verify pin conflict) |
-| — | Session dating source | Onboard RTC vs. host-provided time at session start |
+| — | Session dating source | Onboard RTC vs. host-provided time at session start — softened: every `edrum sync` now injects host time automatically (§13) |
 | — | Calibration offset source | **Resolved:** measured/loaded per setup, recorded **per session** as `calibration_offset_ms` (§4/§4A) |
 | — | On-disk format | **Resolved:** append-only typed-line log; crash recovery = truncate-to-last-complete-line (§6) |
+| — | Device↔brain transport | **Resolved (§13):** transport-agnostic archive-sync contract over `hal::IByteLink`; serial (console line, modal) is implementation #1; BLE/Wi-Fi/TCP are sibling adapters |
+| — | Click output level | **Resolved (§4):** `click_gain` config knob, firmware-local by decision — never brain/profile data |
 
 The experimental plan and decision register that resolve the remaining hardware uncertainties live in [firmware-architecture-roadmap.md](firmware-architecture-roadmap.md).
 
@@ -194,6 +202,39 @@ Capture-side changes from the same principal-architect review recorded in brain 
 - **§7 — emission.** Device passes through raw non-note channel messages (`ctrl`), not just Note On, so hi-hat openness / chokes / positional data survive capture. *(Tier 1.3.)*
 
 The seam is unchanged: the device still does zero analysis and zero normalization. These edits only make the *capture half's* obligations explicit on both sides of the laptop/box boundary.
+
+---
+
+## 12. Enrollment control-surface architecture review (2026-07-11)
+
+A senior-architecture review of the enrollment control path, resolved and implemented:
+
+- **Enrollment is zero-friction to start, like bookmark/grade-span** — but its cross-session identity (the join key Layer C uses to fold repeated demonstrations of the same groove into one profile, brain spec §6) is a genuinely different concern from "start capturing now," and conflating the two is what forced a name upfront originally. Splitting them — instant start, optional label — is what §5 now specifies.
+- **`ControlMsg` moved into the portable core** (`edrum_core/control_msg.h`), not the composition root, so it's the shared vocabulary every controller (console, gesture, future desktop/mobile/BLE/network) constructs against, and it's native-testable independent of any hardware.
+- **A single `ControlDispatcher`** (`edrum_core/control_dispatch.h/.cpp`) is the only thing that translates a `ControlMsg` into `SessionController` calls, resolving the running-click snapshot via a new narrow port (`hal::IClickSnapshot`) along the way. The session FSM's own API is deliberately **not** `ControlMsg`-shaped — it kept its existing typed methods (`bookmark(t)`, `grid_start(t,bpm,subdiv,downbeat)`, ...), which is what makes it trivial to drive from native tests and keeps a flat "one struct for every op" shape out of the FSM's own interface. This closed a real gap: control-routing logic (including the click-snapshot-refusal path) was previously only reachable on hardware (`capture_task.cpp`'s `handle_control`); it's now natively covered (`test/native/test_control_dispatch`).
+- **The synthetic burst load generator (Experiment 3) was removed from `ControlMsg`** and given its own composition-root-local message (`DiagMsg`) — it's a firmware self-test concern, not a session declaration, and didn't belong in the vocabulary every future controller has to learn.
+- **Gesture grammar extended:** kick+crash ×4(+) → enroll-span toggle, alongside the existing ×2 → bookmark, ×3 → grade-span toggle (§5). A toggle-triggered enrollment is always anonymous — a gesture has no label slot to offer by construction; a controller that has one (the CLI, a future app) uses the labeled start instead.
+- **Schema bump to v2** (`kSchemaVersion` / `SCHEMA_VERSION`): `enroll_start.profile_ref` became nullable. This is a *meaning* change to an existing field's value domain, not an additive one (brain spec §3's schema-evolution rule), so it earns the major bump rather than riding in for free — a v1-only reader that assumed a non-empty string would mishandle `null` silently otherwise.
+
+Full rationale, including why groove-identity resolution belongs brain-side as a revisable mapping over `(session_id, start_t)` rather than in the immutable log, lives in brain spec §3/§6.
+
+---
+
+## 13. Device↔brain link — the session-archive sync (2026-07-12, implemented)
+
+The first communication path between the box and the brain, designed as three deliberately separate layers so future transports plug in without touching the capture core or the brain.
+
+**13.1 The logical contract: archive replication, byte-exact.** The seam is still the session file (§0) — so the link's only job is to **move the canonical bytes, unchanged**. The device is the writer-of-record; the brain replicates its archive. The acid test of transport-agnosticism: *pulling the SD card and copying files with a card reader is the degenerate, zero-code implementation of this contract* — every real transport must produce results indistinguishable from sneakernet (same names, same bytes, landing in `sessions/`). Anything that re-serializes or wraps records would create a second dialect of the corpus contract and a second thing to keep conformant. Corollary (one-clock, §3): the device **never streams raw MIDI to the brain** — that would put two clocks on one performance and two writers-of-record on one session.
+
+Contract semantics (v1): **closed sessions only** (the open file is excluded from `LIST`; a live tail is a reserved v2 extension and must be a byte-level tee of the same `LogWriter` output — brain spec Phase 7's "another thin consumer of the identical stream"); **read-only** (no delete/rename — retention is a user act, not protocol); **idempotent + resumable** (skip by size+checksum; resume by verified prefix; the brain never overwrites an existing local file — same bytes = skip, different bytes = loud conflict); **host time rides along** (the handshake carries host wall time = automatic `settime`, healing ADR-5 dating on every sync); **versioned like the schema** (protocol + `schema_version` exchanged at HELLO; newer major refused explicitly, mirroring brain spec §3's reader policy).
+
+**13.2 The transport abstraction.** `hal::IByteLink` — a plain byte pipe (non-blocking `read`, `write`), the least common denominator every candidate transport offers (UART, USB-CDC, TCP, BLE characteristic pair). Framing does **not** live in adapters: COBS + CRC-16/CCITT-FALSE sit once in the portable core (`edrum_core/frame.*`, delimiter-resynchronizable, natively tested with vectors shared byte-for-byte with the brain's mirror), and the protocol engine (`edrum_core/sync_service.*`) is a pure request→response state machine over a second narrow port, `hal::ISessionArchive` (list/size/read — deliberately separate from `IStorage`, whose single-open-file append-only model is load-bearing and must not widen into a filesystem API). Per-request work bounds (FETCH ≤ 512 B, CRC ≤ 4 KiB chunk-chained) cap how long one storage-task iteration holds the SD. The frame header carries a channel byte; channel 1 is reserved for a future remote control plane, which already has its vocabulary (`ControlMsg`, §5/§12) — v1 makes no other provision.
+
+**Concurrency:** the sync service runs *inside the storage task loop* — ring drain unconditionally first (capture always wins), then at most one bounded link chunk. Single SD owner by construction; a transfer physically cannot smear a timestamp (wrong side of the ring, wrong core) or starve the log.
+
+**Fail-soft (storage policy, resolved 2026-07-12):** if the card is missing/full/corrupt, the `LogWriter` latches `failed()` — records **discard gracefully and are counted** (`storage_discarded`), never hammering the dead card, and the next session retries; capture, gestures, and the click keep running untouched (the box degrades to a fully functional standalone metronome + processor). A sync attempted in this state gets an explicit `ERR StorageFailed` **on the wire** — never a hang.
+
+**13.3 Implementation #1: serial, on the console line (modal).** The UART bridge port already validated by ADR-4 — zero new hardware, zero radio stack; deliberately the least interesting transport because the *interfaces* are the deliverable. Arbitration is modal (resolved 2026-07-12): the console `sync` command suspends interactive console I/O and hands the line to the framed protocol; `BYE` or a 10 s idle timeout hands it back. During framed mode all task console prints are suppressed (text inside a frame would corrupt it); declarations still apply, silently. The brain side (`edrum/io/devlink.py` + `edrum sync --port COMx`, `[device]` extra) automates the handoff by typing `sync` itself, verifies each landed file (chunk CRC → whole-file CRC → parse), and the definitive gate stays what it always was: `edrum replay` byte-identity. `engine/` and the `Source` seam are untouched — "the box's files arrive through `FileSource` unchanged" stays literally true.
 
 ---
 

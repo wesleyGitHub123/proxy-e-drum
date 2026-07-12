@@ -43,7 +43,8 @@ GestureDetector::Action GestureDetector::poll(uint32_t t) {
     chord_count_ = 0;
     a_seen_ = b_seen_ = false;
     if (n == 2) return Action::Bookmark;
-    if (n >= 3) return Action::GridToggle;
+    if (n == 3) return Action::GridToggle;
+    if (n >= 4) return Action::EnrollToggle;
     return Action::None;  // single chord: just playing
 }
 

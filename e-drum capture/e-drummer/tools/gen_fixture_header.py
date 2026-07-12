@@ -27,6 +27,7 @@ NAMES = {
     "minimal": "kFixtureMinimal",
     "declarations": "kFixtureDeclarations",
     "warmup_no_grid": "kFixtureWarmupNoGrid",
+    "anonymous_enroll": "kFixtureAnonymousEnroll",
 }
 
 

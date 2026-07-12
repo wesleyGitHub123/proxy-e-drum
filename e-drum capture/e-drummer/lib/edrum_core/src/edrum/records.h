@@ -16,10 +16,14 @@
 namespace edrum {
 
 // Serialization major version (mirror of edrum.engine.records.SCHEMA_VERSION).
-constexpr int kSchemaVersion = 1;
+// v2: enroll_start.profile_ref became nullable (anonymous enrollment) — a
+// meaning-change to an existing field's value domain, not an additive one,
+// so it bumps major per the schema-evolution rule (brain spec §3) rather
+// than riding in for free under ignore-unknown-fields.
+constexpr int kSchemaVersion = 2;
 
 constexpr size_t kSysexMax = 48;       // sysex data bytes kept (excl. F0/F7)
-constexpr size_t kProfileRefMax = 32;  // enroll profile_ref
+constexpr size_t kProfileRefMax = 32;  // enroll profile_ref; empty = anonymous
 constexpr size_t kSessionIdLen = 32;   // uuid4 hex
 constexpr size_t kIsoMax = 25;         // "2026-07-06T12:00:00+08:00"
 constexpr size_t kNameMax = 32;        // user_id / kit_profile_id
@@ -65,6 +69,12 @@ struct GridP {
 };
 
 struct EnrollP {
+    // Provenance hint, not an identity commitment — the brain owns groove
+    // identity as a revisable, rebuildable mapping (spec §5/§6), the same
+    // "reassignable hint" pattern already used for kit_profile_id (spec §7).
+    // Empty string ("") = no label supplied at capture time (anonymous
+    // enrollment); serialized as JSON `null`, matching the existing
+    // empty-sentinel idiom used for kit_profile_id in the meta line.
     char profile_ref[kProfileRefMax + 1];
     uint16_t bpm;
     uint8_t subdiv;

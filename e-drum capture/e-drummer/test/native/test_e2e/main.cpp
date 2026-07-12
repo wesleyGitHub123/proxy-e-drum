@@ -190,7 +190,7 @@ static void test_full_pipeline(void) {
         p = nl + 1;
     }
     TEST_ASSERT_EQUAL_INT(10, n);
-    TEST_ASSERT_NOT_NULL(strstr(lines[0], "\"type\":\"meta\",\"schema_version\":1"));
+    TEST_ASSERT_NOT_NULL(strstr(lines[0], "\"type\":\"meta\",\"schema_version\":2"));
     TEST_ASSERT_NOT_NULL(strstr(lines[0], "\"start_iso\":\"2026-07-06T12:00:00+08:00\""));
     TEST_ASSERT_NOT_NULL(strstr(lines[0], "\"kit_profile_id\":\"td02k\""));
     TEST_ASSERT_NOT_NULL(strstr(lines[0], "\"calibration_offset_ms\":null"));

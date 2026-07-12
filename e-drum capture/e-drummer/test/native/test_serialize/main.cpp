@@ -148,6 +148,23 @@ static void test_declarations(void) {
     TEST_ASSERT_EQUAL_STRING("{\"type\":\"session_end\",\"t\":6500}\n", line_of(r));
 }
 
+static void test_enroll_start_anonymous(void) {
+    // No label supplied at capture time (gesture/hardware-button/quick-app
+    // path): profile_ref is empty, which must serialize as JSON null, never
+    // an invented name — the capture log honestly represents "no provenance"
+    // and leaves display naming to the brain/UI.
+    CaptureRecord r{};
+    r.type = RecType::EnrollStart;
+    r.t = 4000;
+    r.u.enroll = EnrollP{};  // profile_ref[0] == '\0' by zero-init
+    r.u.enroll.bpm = 120;
+    r.u.enroll.subdiv = 4;
+    r.u.enroll.downbeat_t = 4000;
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"enroll_start\",\"t\":4000,\"profile_ref\":null,\"bpm\":120,\"subdiv\":4,\"downbeat_t\":4000}\n",
+        line_of(r));
+}
+
 static void test_meta_null_and_int_calibration(void) {
     SessionStartP s{};
     strcpy(s.session_id, "11111111aaaa4bbb8ccc000000000001");
@@ -161,7 +178,7 @@ static void test_meta_null_and_int_calibration(void) {
     TEST_ASSERT_TRUE(n > 0);
     buf[n] = '\0';
     TEST_ASSERT_EQUAL_STRING(
-        "{\"type\":\"meta\",\"schema_version\":1,\"session_id\":\"11111111aaaa4bbb8ccc000000000001\","
+        "{\"type\":\"meta\",\"schema_version\":2,\"session_id\":\"11111111aaaa4bbb8ccc000000000001\","
         "\"start_iso\":\"2026-07-06T12:00:00+08:00\",\"kit_profile_id\":\"td02k\",\"user_id\":\"local\","
         "\"calibration_offset_ms\":null}\n",
         buf);
@@ -214,6 +231,7 @@ int main(int, char**) {
     RUN_TEST(test_ctrl_aftertouch_and_program);
     RUN_TEST(test_ctrl_sysex);
     RUN_TEST(test_declarations);
+    RUN_TEST(test_enroll_start_anonymous);
     RUN_TEST(test_meta_null_and_int_calibration);
     RUN_TEST(test_json_escape);
     RUN_TEST(test_overflow_returns_zero);

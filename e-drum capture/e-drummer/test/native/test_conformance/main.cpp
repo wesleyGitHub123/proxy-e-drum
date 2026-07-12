@@ -135,6 +135,48 @@ static void test_fixture_declarations(void) {
     f.expect(kFixtureDeclarations, "declarations.jsonl");
 }
 
+static void test_fixture_anonymous_enroll(void) {
+    FileBuilder f;
+    f.meta("55555555aaaa4bbb8ccc000000000005", "2026-07-06T12:00:00+08:00");
+
+    f.event(500, 42, 60);
+
+    CaptureRecord r{};
+    r.type = RecType::GridStart;
+    r.t = 1000;
+    r.u.grid = GridP{120, 4, 1000};
+    f.add(r);
+
+    f.event(1000, 36, 100);
+
+    r = CaptureRecord{};
+    r.type = RecType::EnrollStart;
+    r.t = 1000;
+    // profile_ref left zero-initialized ("") — no label supplied, the
+    // zero-friction gesture/hardware-button path — must serialize as null,
+    // never an invented name.
+    r.u.enroll.bpm = 120;
+    r.u.enroll.subdiv = 4;
+    r.u.enroll.downbeat_t = 1000;
+    f.add(r);
+
+    f.event(1500, 38, 95);
+    f.event(2000, 36, 98);
+
+    r = CaptureRecord{};
+    r.type = RecType::EnrollEnd;
+    r.t = 3000;
+    f.add(r);
+
+    r = CaptureRecord{};
+    r.type = RecType::GridEnd;
+    r.t = 3000;
+    f.add(r);
+
+    f.end(3500);
+    f.expect(kFixtureAnonymousEnroll, "anonymous_enroll.jsonl");
+}
+
 static void test_fixture_warmup_no_grid(void) {
     FileBuilder f;
     f.meta("33333333aaaa4bbb8ccc000000000003", "2026-07-06T12:00:00+08:00");

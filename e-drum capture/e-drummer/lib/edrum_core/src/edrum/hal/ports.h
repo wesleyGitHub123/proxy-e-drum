@@ -96,6 +96,10 @@ struct ISessionArchive {
     // Read up to `len` bytes at `offset`. Returns bytes read (0 = at/past
     // EOF), or -1 on failure.
     virtual int read(const char* name, uint32_t offset, uint8_t* buf, uint32_t len) = 0;
+    // Delete a closed session file (capture spec §13.1: a narrow, explicit,
+    // host-requested act — the device itself never deletes on its own).
+    // Returns false if the name doesn't exist or the delete fails.
+    virtual bool remove(const char* name) = 0;
     virtual ~ISessionArchive() = default;
 };
 

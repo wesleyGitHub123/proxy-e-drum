@@ -15,6 +15,9 @@ dependencies = [
 # Real MIDI ports (edrum record / edrum ports). Kept optional so the pure
 # engine + file tooling work without a native MIDI backend.
 live = ["python-rtmidi>=1.5"]
+# Capture-box link (edrum sync — capture spec §13). Optional for the same
+# reason: the engine and file tooling never need a serial port.
+device = ["pyserial>=3.5"]
 dev = ["pytest>=8"]
 
 [project.scripts]

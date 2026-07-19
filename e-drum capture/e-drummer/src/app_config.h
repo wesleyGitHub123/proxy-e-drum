@@ -41,6 +41,12 @@ constexpr uint32_t kControlQueueLen = 16;
 constexpr uint32_t kSyncEveryBytes = 4096;
 constexpr uint32_t kSyncEveryMs = 250;
 
+// Device<->brain sync link (capture spec §13; serial transport, decision 1).
+// Read chunk bounds the storage-task work per iteration (ring drain always
+// runs first); the idle timeout is the fail-safe exit back to the console.
+constexpr uint32_t kSyncReadChunk = 256;
+constexpr uint32_t kSyncIdleTimeoutMs = 10000;
+
 // Task placement (capture spec §2: capture+click vs storage on separate
 // cores; Arduino's loopTask — our console — also lives on core 1)
 constexpr int kUsbDaemonCore = 0;

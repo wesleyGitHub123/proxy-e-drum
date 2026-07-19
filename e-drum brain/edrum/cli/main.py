@@ -4,9 +4,11 @@ Commands:
     edrum ports                    list MIDI input ports (needs [live] extra)
     edrum record                   capture a session from a live port
     edrum replay FILE              round-trip byte-identity check (Phase 0 gate)
-    edrum dump FILE [--normalized] inspect a session file
+
     edrum sync --port COMx         pull session files off the capture box
                                    (needs [device] extra; capture spec §13)
+    edrum rm --port COMx NAME      delete one closed session off the capture
+                                   box's SD card (host-requested only; §13.1)
 
 Any conditional more interesting than argument handling belongs in engine/ or
 io/ — keeping this caller thin is what makes a future app a drop-in second
@@ -212,6 +214,53 @@ def cmd_dump(args) -> int:
     return 0
 
 
+def _scope_str(scope) -> str:
+    parts = []
+    if scope.span is not None:
+        tag = "" if scope.span.kind == "grid" else f" ({scope.span.kind})"
+        parts.append(f"span[{scope.span.start_t}..{scope.span.end_t}]{tag}")
+    if scope.bpm is not None:
+        parts.append(f"bpm={scope.bpm}")
+    if scope.subdiv is not None:
+        parts.append(f"subdiv={scope.subdiv}")
+    if scope.lane is not None:
+        art = f".{scope.articulation}" if scope.articulation else ""
+        parts.append(f"lane={scope.lane}{art}")
+    if scope.note is not None:
+        parts.append(f"note={scope.note}")
+    if scope.grid_source is not None:
+        parts.append(f"grid={scope.grid_source}")
+    return " ".join(parts) if parts else "session"
+
+
+def _value_str(value, unit: str) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, float):
+        return f"{value:+.2f} {unit}" if unit == "ms" else f"{value:.2f}"
+    if isinstance(value, tuple):
+        return f"[{len(value)} rows]"
+    if hasattr(value, "__dataclass_fields__"):  # e.g. MeanStd
+        return " ".join(
+            f"{name}={_value_str(getattr(value, name), unit)}"
+            for name in value.__dataclass_fields__
+        )
+    return str(value)
+
+
+def _quality_str(q) -> str:
+    parts = [f"n={q.n}"]
+    if q.n_excluded:
+        parts.append(f"excluded={q.n_excluded}")
+    if q.n_ambiguous:
+        parts.append(f"ambiguous={q.n_ambiguous}")
+    if q.confidence is not None:
+        parts.append(f"confidence={q.confidence:.2f}")
+    if q.flags:
+        parts.append(",".join(q.flags))
+    return " ".join(parts)
+
+
 def cmd_sync(args) -> int:
     """Pull the capture box's session archive over the device link
     (capture spec §13). Byte-exact replication: a synced file is
@@ -280,6 +329,54 @@ def cmd_sync(args) -> int:
             pass
 
 
+def cmd_rm(args) -> int:
+    """Delete one closed session file off the capture box's SD card (capture
+    spec §13.1): a narrow, explicit, host-requested act — the device never
+    deletes anything on its own. Refuses the actively-open session."""
+    try:
+        from edrum.io.devlink import (
+            DeviceClient,
+            DeviceError,
+            DeviceStorageError,
+            SerialByteLink,
+            wake_console_handoff,
+        )
+    except ImportError as exc:
+        print(f"error: device link unavailable ({exc}). Is the [device] extra installed?")
+        return 1
+
+    try:
+        link = SerialByteLink(args.port, args.baud)
+    except Exception as exc:
+        print(f"error: cannot open serial port {args.port!r}: {exc}")
+        return 1
+
+    try:
+        wake_console_handoff(link)
+        client = DeviceClient(link)
+        info = client.hello()
+        if not info.storage_ok:
+            print("error: device reports storage FAILED (card missing/full/corrupt).")
+            client.bye()
+            return 1
+        client.delete(args.name)
+        client.bye()
+        print(f"deleted   {args.name}")
+        return 0
+    except DeviceStorageError as exc:
+        print(f"error: {exc}")
+        return 1
+    except DeviceError as exc:
+        print(f"error: {exc}")
+        print("hint: is the box on this port, and did the console print '[sync] framed mode'?")
+        return 1
+    finally:
+        try:
+            link.close()
+        except Exception:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # argument parsing
 # ---------------------------------------------------------------------------
@@ -322,6 +419,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync.add_argument("--baud", type=int, default=115200, help="baud rate (default: 115200)")
     p_sync.add_argument("--out", default="sessions", help="output directory (default: sessions)")
     p_sync.set_defaults(func=cmd_sync)
+
+    p_rm = sub.add_parser("rm", help="delete one closed session off the capture box's SD card")
+    p_rm.add_argument("--port", required=True, help="serial port (e.g. COM5, /dev/ttyUSB0)")
+    p_rm.add_argument("--baud", type=int, default=115200, help="baud rate (default: 115200)")
+    p_rm.add_argument("name", help="exact session filename on the device (see `edrum sync` output)")
+    p_rm.set_defaults(func=cmd_rm)
 
     return parser
 

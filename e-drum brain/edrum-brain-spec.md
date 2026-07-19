@@ -206,6 +206,7 @@ Per §1A there are **no capture modes**. There is one capture, always running �
 **Layer A — reference-free arithmetic (the honest floor).**
 Per-event deviation from the click grid; mean signed offset = rush/drag, bucketed **per BPM**; std of offset = consistency; per-pad velocity mean/variance; inter-onset interval distribution. Always valid, needs no intent. This is "just" subtraction against a known grid — and it's the useful core.
 `grid_tick_ms = 60000 / bpm / grid_subdiv`; for each event, nearest grid line → signed deviation. A **calibration offset** (audio-out buffer + MIDI-in latency) is subtracted — read **per session** from meta `calibration_offset_ms` (§3), *not* a single global constant: it is constant for a fixed setup but shifts across setups (audio device, buffer size, OS), so a laptop that changes output between sessions would otherwise inject a step change straight into the Layer-D rush/drag trend.
+*(Implemented 2026-07-13 as the analyzer pipeline — `phase1-stats-plan.md` Part B: Tier-1 primitives are per-event **tables** (the drawable §1A geometry), derived metrics are compressions consuming them by declared dependency, unsatisfiable requirements yield structured refusals, and provenance/quality propagate mechanically through a uniform result envelope. `downbeat_t` semantics amended (8′): a beat edge **as written by the producer** — the firmware anchors at the first beat edge at/after the declaration; the lattice is unbounded both directions, so grading is anchor-direction-invariant.)*
 
 **Layer D — longitudinal statistics (most useful, least flashy).**
 Is the session-over-session change *real* or just variance? Per metric, per groove, per BPM. Sits on Layer A alone — needs no inference. This is the layer that actually answers *"am I getting better or just used to feeling bad."* Report trend with an uncertainty band; do not overclaim significance at small n. *(Tier 3 — do not build yet: if recompute-over-corpus ever gets slow, a derived-metric cache keyed by `(schema_version, engine_version, profile_version)` is permitted as a **rebuildable, non-authoritative** index. Do **not** "fix" performance by writing grades into the file — that reopens exactly the door §1A closed.)*
@@ -278,11 +279,11 @@ Each phase ships something usable and states: brain work, what it asks of captur
 - **Decisions:** 3a **resolved** (integer ms; §3), 3b (log layout; §3), 4a (token set).
 - **Ships:** the jamcorder-equivalent recorder, on the laptop.
 
-### Phase 1 — Layer A: reference-free floor
-- **Brain:** click-grid grading; rush/drag per BPM; consistency; per-pad velocity; IOI; constant-offset calibration routine.
-- **Asks of capture:** arrival-edge timestamp; click as tempo authority; BPM in meta.
-- **Validation / adjudication:** record an intentionally metronomic take and an intentionally degraded take → metrics must rank them correctly. Compare against a parallel DAW capture for timestamp ground-truth (±tolerance). **Drummer check:** the rush/drag number matches felt sense.
-- **Decisions:** BPM bucket boundaries.
+### Phase 1 — Layer A: the statistics layer *(revised & implemented 2026-07-13; contract: `phase1-stats-plan.md`)*
+- **Brain (implemented):** the analyzer pipeline — `engine/grid.py` (the one lattice truth brain-side; the firmware `ClickScheduler` is the producer-side twin, held honest by golden fixtures), `engine/analysis.py` (uniform result envelope: flat-axes scope + quality + provenance; declared dependencies double as claim-bounding gates → structured *refusals*, never fake numbers; quality/confidence propagate mechanically), and `engine/analyzers/` (deviation table + rush/drag + consistency, velocity, IOI, density) behind an explicit registry — a new metric is one module + one registry line, nothing else. `edrum analyze` renders generically over the envelope. **Trigger-hit exclusion pulled forward from Phase 3** (gestures are live in firmware, so every real declaration is preceded by kick+crash trigger hits): exclusion is a mark on a view via the declaration's `trigger_span`, never a deletion.
+- **Asks of capture (all provided by the box):** arrival-edge timestamps; click as tempo authority; gesture/console declarations; `edrum sync`. One additive field added (F1): `trigger_span` on gesture-produced declarations. (BPM travels in grid segments, never meta — earlier "BPM in meta" language was stale pre-§1A.)
+- **Validation:** golden-VALUE suite (1e-6) on synthetic graded fixtures, which double as firmware byte-conformance cases; claim-bounding behaviors (grid-empty refusal, `None` under n<2, uncalibrated flag, ambiguity + exclusion counts); real box-session smoke; extensibility rehearsal passed. **Remaining (hardware):** the live box loop — click-accompanied warmup undeclared → gesture-declared metronomic + degraded takes → sync → `analyze` ranks them; **drummer check:** rush/drag matches felt sense.
+- **Decisions:** BPM bucketing → Phase 2. Calibration = a one-time measured hardware constant set in device config (F2, lands with roadmap Experiment 7); the engine's honest-null handling covers the interim.
 - **Ships:** objective timing feedback on real playing — the honest core.
 
 ### Phase 2 — Layer D: longitudinal stats
@@ -292,12 +293,12 @@ Each phase ships something usable and states: brain work, what it asks of captur
 - **Decisions:** stat method (CI/effect-size vs regression); how to present uncertainty so it's not over-read.
 - **Ships:** the "am I actually getting better" answer — the defensible lane.
 
-### Phase 3 — Declarations & control surface
-- **Brain:** the declaration surface from §5 — grade-span declarations (which write grid segments, snapshotting the running click) and enrollment spans; a gesture-grammar state machine over the event stream (session start/stop, bookmark, grade-span start/end, enroll-start/stop). No modes. Sounding the metronome is a *separate* act that writes nothing.
-- **Asks of capture:** the control-input channel (gestures) and the metronome/tempo control (which sounds the click and sets BPM/subdivision but writes nothing); the grade-span declaration is what writes the grid; idle-timeout failsafe.
-- **Validation:** gestures fire reliably and are not triggered by normal playing (false-trigger rate ≈ 0); a click-accompanied warmup with no grade declaration produces no grid and no grade.
-- **Decisions:** **9c — where gesture detection lives** (brain/host now vs. firmware in the standalone box); the exact gesture vocabulary (drummer-friendly, un-playable-by-accident).
-- **Ships:** the no-anxiety practice loop — play freely (even to a click), declare a graded span only when you want one, review later.
+### Phase 3 — Declarations & control surface — **DISSOLVED (2026-07-13)**
+Both halves shipped elsewhere, ahead of this phase's turn. The gesture grammar and the whole declaration surface live in **firmware** (capture spec §5, decision 9c resolved: `ControlMsg`/`ControlDispatcher`/session FSM, natively tested), including the idle-timeout failsafe and the metronome/grade separation. Engine-side **trigger-hit exclusion** moved into Phase 1 (`trigger_span`, phase1-stats-plan F1). The laptop keyboard/click control surface this phase once implied was **deleted unbuilt** — the box is the capture half (phase1-stats-plan Part A). The no-anxiety practice loop this phase was to ship is delivered by the box + Phase 1 together. Retained as a numbering placeholder only.
+
+### Phase 3B — Audio replay (§4B) *(slotted 2026-07-13; resolves the old "no phase assigned" gap)*
+- **Brain/app:** velocity- and microtiming-faithful playback through static velocity-layered samples (§4B) — the adjudication credibility layer. Its own milestone after Phase 2 (Layer D), before Layer B.
+- **Asks of capture / schema:** nothing (§4B) — replay reads preserved raw events and routes lanes through the same kit profile.
 
 ### Phase 4 — Layer B: structure inference
 - **Brain:** subdivision inference from IOI clustering; grid-snapping under uncertainty with confidence; recompute Layer-A metrics against inferred grid; suppress low-confidence claims.
@@ -360,6 +361,9 @@ Validation is therefore not a final step; it's a per-phase obligation (metronomi
 | — | Layer B approach | Heuristic IOI clustering first |
 | — | Layer C matcher | DTW first; embeddings when the work proves it wants you |
 | — | Build order | A → D → B → C |
+| — | Phase 1 statistics architecture | **Resolved (2026-07-13, `phase1-stats-plan.md`):** explicit analyzer registry over a uniform result envelope (flat-axes scope, quality, provenance); refusals as structured results; micro-decisions 7–19 frozen there |
+| 8′ | `downbeat_t` anchoring | **Resolved:** a beat edge as written by the producer (firmware: first edge at/after the declaration); lattice unbounded, so direction is grading-invariant; beat-anchoring (not subdivision) is the load-bearing property |
+| — | Trigger-hit exclusion (`trigger_span`) | **Resolved (F1):** additive last-key field on gesture-produced declarations; engine excludes bracketed events from aggregates by default (mark on a view, never a deletion); console/app declarations omit it — no schema bump |
 
 ---
 

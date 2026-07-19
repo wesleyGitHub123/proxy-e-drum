@@ -284,6 +284,26 @@ How each outcome changes the specification
 
 Success keeps Section 2's simpler concurrency model. Failure adds explicit task/core requirements to Section 2 and likely strengthens the watchdog strategy in Section 8.3.
 
+### Experiment 7: Click through the PCM5102 → MIX IN (closes ranked-unknown 8)
+
+Purpose — prove the DAC → TD-02 MIX IN route practical and the schedule→sound offset **constant** (constancy is what matters: the constant lands in `calibration_offset_ms`, spec §4).
+
+Firmware is already complete (scheduler/renderer/I2S adapter/`click_gain`); this is hardware bring-up + sign-off. Wiring traps: SCK→GND (PLL mode; no MCLK emitted), XSMT high (spec §4 ⚠ VERIFY).
+
+Measurements — audible click at 60/120/208 BPM with correct accents, 10+ min each, no doubles/misses; DOUT vs a render-time debug GPIO on a few edges → offset ≈ DMA depth and stable; `stats` click counters (`late_max`) quiet while running `burst 5000 1000` + a sustained roll (Experiment 6 load); workable mix balance via `click_gain` through the real chain (TD-02 → Tank-G → phones).
+
+Success — stable audible click under full concurrent load, constant pipeline offset, `DROPS=0` with click running. Failure — audible jitter/missed clicks under load (revisit priorities/DMA depth) or offset drift (renderer timing model wrong — architectural).
+
+### Experiment 8: Sync link under load (validates ADR-7 on hardware)
+
+Purpose — prove a session transfer can never disturb capture or the click.
+
+Method — start the click, run `burst 5000 1000` (or play a dense roll), and mid-burst run `edrum sync --port COMx` from the host. Then `edrum replay` every transferred file.
+
+Measurements — `ring DROPS` (must stay 0), `stall max` vs the Experiment 3 budget, `click late_max`, transfer completes with CRC-clean files, byte-identity `replay` PASS on every file. Also: yank the card mid-session → `stats` shows the fail-soft latch (`discarded` counting, `[FAIL-SOFT]` flag), click keeps running, `edrum sync` reports the explicit storage-failed error instead of hanging.
+
+Success — zero drops, stall budget honored, byte-identical files, explicit fail-soft behavior end-to-end.
+
 ## 3. Dependency Graph
 
 ```mermaid
@@ -318,14 +338,16 @@ Optimal order:
 | ADR-4 | Can the board be flashed and debugged while hosting the kit? | Experiment 4 executed on hardware: DevKitC-1 two-port topology flashes + monitors while the kit stays hosted. | DevKitC-1 UART-bridge port for flash/serial; OTG port for the kit | Development loop viability constrains board selection and transport strategy. | 8.3, 8.5 | **Validated** |
 | ADR-5 | Can sessions be dated autonomously? | v1 adapter shipped: system time + `settime` console command + NVS checkpoint guarantees session ORDER across power loss; real dates need `settime` after cold power loss. | Ordering guaranteed now; battery RTC (or NTP) later replaces `esp32_wallclock.h` only | Longitudinal analysis needs a stable date axis even when the host is absent. | 6, 8.5 | Testing (RTC decision open) |
 | ADR-6 | Is a single cooperative loop enough, or is RTOS/task separation required? | Implemented as FreeRTOS tasks per spec §2 (capture+click core 0, storage core 1) with the SPSC ring as the seam; Experiment 6 measures whether this holds under peak load (`stats`: drops, click lateness). | Task/core split adopted; boundaries are queues, so collapsing or re-pinning is app wiring only | This decides the capture/storage concurrency model. | 2, 3, 6, 8.3 | Testing |
+| ADR-7 | How do session files reach the brain without the transport becoming an architectural dependency? | Implemented + natively tested (2026-07-12): archive-sync contract over `hal::IByteLink` + `hal::ISessionArchive`, COBS/CRC-16 framing and pure `SyncService` in `edrum_core` (`test_frame`, `test_sync_service`); serial transport #1 on the console line (modal); brain client `edrum sync` (`test_devlink.py`, incl. fail-soft + version refusal). Run Experiment 8 for on-hardware sign-off. | Byte-exact archive replication is the contract; transports are adapters of one byte-pipe port; fail-soft storage answers `ERR StorageFailed` on the wire (spec §13) | The seam to the brain is the session file; the link must be indistinguishable from a card-reader copy or it forks the corpus contract. | §13, 4, 6 | Implemented (Experiment 8 pending) |
 
 ## 5. Deferred but Important
 
 These are real uncertainties, but they are not the first blockers for the firmware architecture:
 
-- Gesture detection location, which becomes important after the raw capture path is stable.
-- Click output implementation details beyond the minimum wired path.
+- Gesture detection location, which becomes important after the raw capture path is stable. *(Resolved: firmware — spec §5, decision 9c.)*
+- Click output implementation details beyond the minimum wired path. *(Firmware complete incl. `click_gain`; hardware sign-off = Experiment 7.)*
 - Exact enclosure pin routing once the board and power topology are selected.
+- Second sync transport (Wi-Fi/BLE/TCP): a sibling `IByteLink` adapter plus its own experiments (RF vs capture-core contention, power) — only when a cable-free workflow earns it (ADR-7 keeps the seam ready).
 
 ## 6. Notes for Spec Maintenance
 

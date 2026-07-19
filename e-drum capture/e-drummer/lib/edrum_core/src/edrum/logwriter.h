@@ -48,6 +48,17 @@ public:
 
     bool file_open() const { return open_; }
 
+    // Fail-soft latch (storage policy decision 5): set when a session file
+    // could not be created or repeated appends failed (card missing / full /
+    // corrupt). While latched, records are DISCARDED and counted
+    // (storage_discarded) instead of hammering the dead card — capture and
+    // click keep running untouched. The next SessionStart retries.
+    bool failed() const { return failed_; }
+
+    // Filename (no directory) of the open session, or nullptr. The sync
+    // service excludes it from LIST (closed sessions only, spec §13).
+    const char* open_name() const { return open_ ? open_name_ : nullptr; }
+
 private:
     void open_session(const SessionStartP& s);
     void close_session();
@@ -63,9 +74,12 @@ private:
     Counters& counters_;
 
     bool open_ = false;
+    bool failed_ = false;
+    uint8_t consec_write_errors_ = 0;
     uint32_t unsynced_bytes_ = 0;
     uint64_t last_sync_us_ = 0;
     uint32_t last_t_ = 0;
+    char open_name_[48] = {0};
     char line_[kMaxLine];
 };
 

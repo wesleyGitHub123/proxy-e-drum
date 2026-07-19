@@ -41,6 +41,9 @@ struct Counters {
     uint32_t storage_lines = 0;
     uint32_t storage_bytes = 0;
     uint32_t storage_write_errors = 0;
+    uint32_t storage_discarded = 0;  // records dropped while storage latched
+                                     // failed (fail-soft: capture/click keep
+                                     // running; the ring is still drained)
     uint32_t storage_syncs = 0;
     uint32_t write_stall_max_us = 0;   // Experiment 3 headline
     uint32_t write_stall_over_50ms = 0;

@@ -28,6 +28,7 @@ struct MemStorage : hal::IStorage {
     bool is_open = false;
     int creates = 0, syncs = 0, closes = 0;
     bool fail_create = false;
+    bool fail_append = false;  // simulates a yanked/full/corrupt card
     char last_path[96] = {0};
 
     bool exists(const char*) override { return false; }
@@ -40,7 +41,7 @@ struct MemStorage : hal::IStorage {
         return true;
     }
     bool append(const uint8_t* d, size_t n) override {
-        if (!is_open || len + n > sizeof(data)) return false;
+        if (fail_append || !is_open || len + n > sizeof(data)) return false;
         memcpy(data + len, d, n);
         len += n;
         return true;
@@ -154,20 +155,91 @@ static void test_records_without_session_are_counted(void) {
     LogWriter::Cfg cfg{"/sessions", 4096, 250};
     LogWriter w(cfg, st, clk, td02k_meta(), c);
 
-    w.handle(event(10, 36, 96));  // no SessionStart yet
+    // a stray record before ANY session is a producer bug, not fail-soft
+    w.handle(event(10, 36, 96));
     TEST_ASSERT_EQUAL_UINT32(1, c.storage_write_errors);
+    TEST_ASSERT_EQUAL_UINT32(0, c.storage_discarded);
     TEST_ASSERT_EQUAL_UINT32(0, st.len);
+    TEST_ASSERT_FALSE(w.failed());
+}
 
-    // failed create: session's records dropped and counted, then recovery
+// Fail-soft policy (decision 5): a card that can't open a session file
+// latches failed(); records DISCARD gracefully (counted once each, no
+// per-record error spam, no further SD hammering) and the next session
+// retries — a re-seated card resumes persisting with no reboot.
+static void test_failed_create_latches_and_discards(void) {
+    FakeClock clk;
+    MemStorage st;
+    Counters c;
+    LogWriter::Cfg cfg{"/sessions", 4096, 250};
+    LogWriter w(cfg, st, clk, td02k_meta(), c);
+
     st.fail_create = true;
     w.handle(start_marker("22222222aaaa4bbb8ccc000000000002", "2026-07-06T12:00:00+08:00"));
     TEST_ASSERT_FALSE(w.file_open());
-    w.handle(event(20, 36, 96));
-    TEST_ASSERT_EQUAL_UINT32(3, c.storage_write_errors);
+    TEST_ASSERT_TRUE(w.failed());
+    TEST_ASSERT_EQUAL_UINT32(1, c.storage_write_errors);  // the create itself
 
+    w.handle(event(20, 36, 96));
+    w.handle(event(30, 38, 96));
+    w.handle(session_end(40));
+    TEST_ASSERT_EQUAL_UINT32(1, c.storage_write_errors);  // no error spam
+    TEST_ASSERT_EQUAL_UINT32(3, c.storage_discarded);     // graceful discard
+
+    // card re-seated: the next session persists normally
     st.fail_create = false;
     w.handle(start_marker("33333333aaaa4bbb8ccc000000000003", "2026-07-06T12:00:00+08:00"));
     TEST_ASSERT_TRUE(w.file_open());
+    TEST_ASSERT_FALSE(w.failed());
+    w.handle(event(50, 36, 96));
+    TEST_ASSERT_EQUAL_UINT32(3, c.storage_discarded);  // discards stopped
+}
+
+// Mid-session card death: repeated append failures latch fail-soft instead
+// of stalling the storage task on a dead card forever.
+static void test_append_failures_latch_fail_soft(void) {
+    FakeClock clk;
+    MemStorage st;
+    Counters c;
+    LogWriter::Cfg cfg{"/sessions", 4096, 250};
+    LogWriter w(cfg, st, clk, td02k_meta(), c);
+
+    w.handle(start_marker("11111111aaaa4bbb8ccc000000000001", "2026-07-06T12:00:00+08:00"));
+    w.handle(event(100, 36, 96));
+    TEST_ASSERT_TRUE(w.file_open());
+
+    st.fail_append = true;  // card yanked mid-session
+    w.handle(event(200, 38, 96));
+    w.handle(event(300, 40, 96));
+    TEST_ASSERT_TRUE(w.file_open());  // still trying (< 3 consecutive)
+    w.handle(event(400, 42, 96));     // third consecutive failure: latch
+    TEST_ASSERT_FALSE(w.file_open());
+    TEST_ASSERT_TRUE(w.failed());
+    TEST_ASSERT_EQUAL_UINT32(3, c.storage_write_errors);
+
+    w.handle(event(500, 36, 96));  // discarded, not attempted
+    TEST_ASSERT_EQUAL_UINT32(1, c.storage_discarded);
+    TEST_ASSERT_EQUAL_UINT32(3, c.storage_write_errors);
+
+    // next session retries the card
+    st.fail_append = false;
+    w.handle(start_marker("55555555aaaa4bbb8ccc000000000005", "2026-07-06T14:00:00+08:00"));
+    TEST_ASSERT_TRUE(w.file_open());
+    TEST_ASSERT_FALSE(w.failed());
+}
+
+static void test_open_name_tracks_the_open_session(void) {
+    FakeClock clk;
+    MemStorage st;
+    Counters c;
+    LogWriter::Cfg cfg{"/sessions", 4096, 250};
+    LogWriter w(cfg, st, clk, td02k_meta(), c);
+
+    TEST_ASSERT_NULL(w.open_name());
+    w.handle(start_marker("11111111aaaa4bbb8ccc000000000001", "2026-07-06T12:00:00+08:00"));
+    TEST_ASSERT_EQUAL_STRING("20260706T120000_11111111.jsonl", w.open_name());
+    w.handle(session_end(100));
+    TEST_ASSERT_NULL(w.open_name());  // sync LIST may now include it
 }
 
 static void test_two_sessions_sequential(void) {
@@ -208,6 +280,9 @@ int main(int, char**) {
     RUN_TEST(test_minimal_fixture_through_storage_path);
     RUN_TEST(test_sync_policy_bytes_and_time);
     RUN_TEST(test_records_without_session_are_counted);
+    RUN_TEST(test_failed_create_latches_and_discards);
+    RUN_TEST(test_append_failures_latch_fail_soft);
+    RUN_TEST(test_open_name_tracks_the_open_session);
     RUN_TEST(test_two_sessions_sequential);
     RUN_TEST(test_monotonic_violation_counted_not_fatal);
     return UNITY_END();

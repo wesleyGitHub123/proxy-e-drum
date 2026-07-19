@@ -20,21 +20,29 @@ void LogWriter::open_session(const SessionStartP& s) {
         // FSM guarantees end-before-start; tolerate a foreign producer bug.
         close_session();
     }
+    // Every new session retries a previously failed card (fail-soft latch,
+    // decision 5) — a re-seated card starts persisting again at the next
+    // session with no reboot.
+    failed_ = false;
+    consec_write_errors_ = 0;
 
     DateTime dt;
     if (!parse_iso(s.start_iso, dt)) {
         counters_.storage_write_errors++;
+        failed_ = true;
         return;
     }
     char name[48];
     if (session_filename(dt, s.session_id, name, sizeof(name)) == 0) {
         counters_.storage_write_errors++;
+        failed_ = true;
         return;
     }
     char path[80];
     const int n = snprintf(path, sizeof(path), "%s/%s", cfg_.dir, name);
     if (n <= 0 || (size_t)n >= sizeof(path)) {
         counters_.storage_write_errors++;
+        failed_ = true;
         return;
     }
 
@@ -43,15 +51,19 @@ void LogWriter::open_session(const SessionStartP& s) {
     stalled_call_end(t0);
     if (!created) {
         counters_.storage_write_errors++;
-        return;  // records until the next SessionStart will be dropped+counted
+        failed_ = true;  // this session's records discard+count (fail-soft)
+        return;
     }
 
     const size_t len = meta_line(s, meta_, line_, sizeof(line_));
     if (len == 0) {
         counters_.serialize_errors++;
         storage_.close();
+        failed_ = true;
         return;
     }
+    strncpy(open_name_, name, sizeof(open_name_) - 1);
+    open_name_[sizeof(open_name_) - 1] = '\0';
     open_ = true;
     unsynced_bytes_ = 0;
     last_sync_us_ = clock_.now_us();
@@ -76,8 +88,18 @@ void LogWriter::append_line(const char* buf, size_t len) {
     stalled_call_end(t0);
     if (!ok) {
         counters_.storage_write_errors++;
+        // Fail-soft latch (decision 5): a card that failed several appends
+        // in a row (yanked / full / corrupt) is dead for this session — stop
+        // hammering it (each attempt is a potential multi-ms stall) and
+        // discard+count instead. Capture and click never notice.
+        if (++consec_write_errors_ >= 3) {
+            storage_.close();
+            open_ = false;
+            failed_ = true;
+        }
         return;
     }
+    consec_write_errors_ = 0;
     counters_.storage_lines++;
     counters_.storage_bytes += (uint32_t)len;
     unsynced_bytes_ += (uint32_t)len;
@@ -108,7 +130,11 @@ void LogWriter::handle(const CaptureRecord& rec) {
         return;
     }
     if (!open_) {
-        counters_.storage_write_errors++;  // record with no session file
+        if (failed_) {
+            counters_.storage_discarded++;  // fail-soft: graceful discard
+        } else {
+            counters_.storage_write_errors++;  // record with no session file
+        }
         return;
     }
 

@@ -87,6 +87,11 @@ bool apply(Config& c, const char* key, const char* val) {
         c.click_subdiv = (uint8_t)n;
         return true;
     }
+    if (strcmp(key, "click_gain") == 0) {
+        if (!parse_long(val, &n) || n < 0 || n > 100) return false;
+        c.click_gain = (uint8_t)n;
+        return true;
+    }
     if (strcmp(key, "pause_after_ms") == 0) {
         if (!parse_long(val, &n) || n < 500 || n > 60000) return false;
         c.pause_after_ms = (uint32_t)n;
@@ -116,8 +121,8 @@ bool apply(Config& c, const char* key, const char* val) {
 bool known_key(const char* key) {
     static const char* keys[] = {
         "user_id",        "kit_profile_id", "calibration_offset_ms", "tz_offset_min",
-        "click_bpm",      "click_subdiv",   "pause_after_ms",        "idle_end_ms",
-        "gesture_enable", "gesture_note_a", "gesture_note_b",
+        "click_bpm",      "click_subdiv",   "click_gain",            "pause_after_ms",
+        "idle_end_ms",    "gesture_enable", "gesture_note_a",        "gesture_note_b",
     };
     for (const char* k : keys) {
         if (strcmp(key, k) == 0) return true;

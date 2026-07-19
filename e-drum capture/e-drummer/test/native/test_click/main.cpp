@@ -111,6 +111,81 @@ static void test_stopped_renders_silence(void) {
     TEST_ASSERT_EQUAL_UINT32(0, c.clicks_rendered);
 }
 
+// Decision 4: plan (locked, integer decisions) and mix (unlocked, sample
+// work) split — the two-phase path must produce byte-identical audio to the
+// single-call convenience path.
+static void test_plan_mix_split_equals_render(void) {
+    ClickScheduler s1, s2;
+    Counters c1, c2;
+    ClickRenderer whole(s1, c1), split(s2, c2);
+    whole.begin(48000);
+    split.begin(48000);
+    s1.start(10500, 120, 4);
+    s2.start(10500, 120, 4);
+
+    int16_t a[48], b[48];
+    for (int blk = 0; blk < 40; ++blk) {  // spans silence, trigger, tail
+        const uint64_t t0 = (uint64_t)blk * 1000;
+        whole.render_block(a, 48, t0);
+        ClickRenderer::BlockPlan plan;
+        split.plan_block(plan, 48, t0);
+        split.mix_block(b, 48, plan);
+        TEST_ASSERT_EQUAL_INT16_ARRAY(a, b, 48);
+    }
+    TEST_ASSERT_EQUAL_UINT32(c1.clicks_rendered, c2.clicks_rendered);
+}
+
+// Decision 2: gain scales the pre-rendered voices at begin() — output
+// samples at 50% are exactly half of the 100% samples, and 0% is silence
+// while still counting edges (the schedule is authoritative, not the sound).
+static void test_gain_scales_output(void) {
+    ClickScheduler s1, s2;
+    Counters c1, c2;
+    ClickRenderer full(s1, c1), half(s2, c2);
+    full.begin(48000, 100);
+    half.begin(48000, 50);
+    s1.start(0, 120, 4);
+    s2.start(0, 120, 4);
+
+    int16_t a[48], b[48];
+    full.render_block(a, 48, 0);
+    half.render_block(b, 48, 0);
+    bool nonzero = false;
+    for (int i = 0; i < 48; ++i) {
+        TEST_ASSERT_EQUAL_INT16((int16_t)((int32_t)a[i] * 50 / 100), b[i]);
+        nonzero |= (a[i] != 0);
+    }
+    TEST_ASSERT_TRUE(nonzero);
+
+    ClickScheduler s3;
+    Counters c3;
+    ClickRenderer mute(s3, c3);
+    mute.begin(48000, 0);
+    s3.start(0, 120, 4);
+    mute.render_block(a, 48, 0);
+    for (int i = 0; i < 48; ++i) TEST_ASSERT_EQUAL_INT16(0, a[i]);
+    TEST_ASSERT_EQUAL_UINT32(1, c3.clicks_rendered);
+}
+
+// quiet() while the schedule is stopped: a restart never resumes the stale
+// voice mid-decay (the click task calls this in its idle branch).
+static void test_quiet_drops_stale_voice(void) {
+    ClickScheduler s;
+    Counters c;
+    ClickRenderer r(s, c);
+    r.begin(48000);
+    s.start(0, 120, 4);
+
+    int16_t block[48];
+    r.render_block(block, 48, 0);  // voice active (25 ms > 1 ms block)
+    s.stop();
+    r.quiet();
+
+    s.start(100000, 120, 4);  // restart; first edge at 100 ms
+    r.render_block(block, 48, 50000);  // pre-edge block must be silent
+    for (int i = 0; i < 48; ++i) TEST_ASSERT_EQUAL_INT16(0, block[i]);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_beat_arithmetic_no_drift);
@@ -119,5 +194,8 @@ int main(int, char**) {
     RUN_TEST(test_render_places_click_at_offset);
     RUN_TEST(test_render_mid_block_offset_and_late);
     RUN_TEST(test_stopped_renders_silence);
+    RUN_TEST(test_plan_mix_split_equals_render);
+    RUN_TEST(test_gain_scales_output);
+    RUN_TEST(test_quiet_drops_stale_voice);
     return UNITY_END();
 }

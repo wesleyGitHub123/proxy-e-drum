@@ -29,6 +29,9 @@ struct Config {
     // click defaults (capture spec §4)
     uint16_t click_bpm;
     uint8_t click_subdiv;
+    uint8_t click_gain;  // 0-100 %: output level into the TD-02 MIX IN — a
+                         // setup knob for THIS hardware chain (decision 2:
+                         // firmware-local, never brain/kit-profile data)
 
     // session boundaries (capture spec §6, Jamcorder-derived)
     uint32_t pause_after_ms;  // event silence before ctrl-caching starts
@@ -47,6 +50,7 @@ struct Config {
           tz_offset_min(480),
           click_bpm(120),
           click_subdiv(4),
+          click_gain(50),
           pause_after_ms(3000),
           idle_end_ms(300000),
           gesture_enable(true),

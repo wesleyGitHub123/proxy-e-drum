@@ -55,12 +55,17 @@ public:
     void tick(uint64_t now_us);
 
     // --- control surface (console / gestures / click) ----------------------
-    void bookmark(uint64_t now_us);
-    void grid_start(uint64_t now_us, uint16_t bpm, uint8_t subdiv, uint64_t downbeat_us);
-    bool grid_end(uint64_t now_us);  // false if no span open
+    // `trigger` (optional) = the gesture trigger-hit bracket in clock-µs;
+    // converted to session-t and recorded on the declaration so the brain
+    // excludes those hits from analysis (capture spec §5). Console/app
+    // callers pass nothing.
+    void bookmark(uint64_t now_us, const TrigRef& trigger = {});
+    void grid_start(uint64_t now_us, uint16_t bpm, uint8_t subdiv, uint64_t downbeat_us,
+                    const TrigRef& trigger = {});
+    bool grid_end(uint64_t now_us, const TrigRef& trigger = {});  // false if no span open
     void enroll_start(uint64_t now_us, const char* profile_ref, uint16_t bpm,
-                      uint8_t subdiv, uint64_t downbeat_us);
-    bool enroll_end(uint64_t now_us);
+                      uint8_t subdiv, uint64_t downbeat_us, const TrigRef& trigger = {});
+    bool enroll_end(uint64_t now_us, const TrigRef& trigger = {});
     void end_session(uint64_t now_us);
 
     // --- introspection ------------------------------------------------------
@@ -73,6 +78,8 @@ public:
 private:
     void ensure_session(uint64_t now_us);
     uint32_t stamp(uint64_t now_us);  // t mapping + monotonic clamp
+    uint32_t rel_ms(uint64_t us) const;  // clock-µs -> session-t, no clamp-to-last
+    TrigSpanP trig_span(const TrigRef& trigger) const;
     void push(const CaptureRecord& rec);
     void flush_cache(uint32_t t, bool full);  // full: all set; else dirty only
     void cache_update(const MidiMsg& msg, bool write_through, uint64_t now_us);

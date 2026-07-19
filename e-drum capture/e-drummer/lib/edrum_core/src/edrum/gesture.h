@@ -45,6 +45,14 @@ public:
     // Call periodically; returns the action when a chord sequence closes.
     Action poll(uint32_t t);
 
+    // The trigger-hit span of the sequence poll() just emitted (first hit of
+    // the first chord .. last hit of the last chord), in the same timebase
+    // the caller feeds on_event(). Valid only after poll() returned an
+    // action; feeds the declaration's trigger_span so the brain can exclude
+    // these hits from analysis (capture spec §5).
+    uint32_t span_t0() const { return span_t0_; }
+    uint32_t span_t1() const { return span_t1_; }
+
     // A session ended or config changed: forget in-flight state.
     void reset();
 
@@ -56,6 +64,9 @@ private:
     bool b_seen_ = false;
     uint8_t chord_count_ = 0;
     uint32_t last_chord_t_ = 0;
+    uint32_t seq_t0_ = 0;   // first hit of the in-flight sequence's first chord
+    uint32_t span_t0_ = 0;  // last emitted span
+    uint32_t span_t1_ = 0;
 };
 
 }  // namespace edrum

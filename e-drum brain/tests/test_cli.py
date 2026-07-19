@@ -72,3 +72,54 @@ def test_dump_limit(session_file, capsys):
 
 def test_default_profiles_dir_contains_td02k():
     assert (default_profiles_dir() / "td02k.json").is_file()
+
+
+# ---------------------------------------------------------------------------
+# analyze (S13′)
+# ---------------------------------------------------------------------------
+
+def test_analyze_text_output(session_file, capsys):
+    assert main(["analyze", str(session_file)]) == 0
+    out = capsys.readouterr().out
+    assert "timing.rush_drag" in out
+    assert "span[1000..2000] bpm=120 subdiv=4" in out
+    assert "(uncalibrated)" in out
+    assert "lane=SNARE.head" in out  # profile resolved from meta pointer
+
+
+def test_analyze_grid_empty_refuses_with_exit_0(tmp_path, capsys):
+    path = tmp_path / "free.jsonl"
+    w = SessionWriter(path, make_meta())
+    w.append(EventRecord(t=10, note=36, velocity=90, channel=9))
+    w.close(end_t=100)
+    assert main(["analyze", str(path)]) == 0  # absence of grid is truth, not error
+    out = capsys.readouterr().out
+    assert "refused   timing.deviations: no_grid_segments" in out
+    assert "velocity.per_note" in out  # grid-free tier still present
+
+
+def test_analyze_json_round_trips(session_file, capsys):
+    import json
+
+    assert main(["analyze", str(session_file), "--json"]) == 0
+    d = json.loads(capsys.readouterr().out)
+    assert d["analysis_version"] == 1
+    assert any(r["analyzer_id"] == "timing.deviations" for r in d["results"])
+
+
+def test_analyze_metrics_subset_and_unknown(session_file, capsys):
+    assert main(["analyze", str(session_file), "--metrics", "timing.rush_drag"]) == 0
+    out = capsys.readouterr().out
+    assert "timing.rush_drag" in out
+    assert "velocity" not in out  # subset honored (upstream dep runs silently)
+
+    assert main(["analyze", str(session_file), "--metrics", "nope.nothing"]) == 1
+    out = capsys.readouterr().out
+    assert "unknown metric" in out and "timing.rush_drag" in out
+
+
+def test_analyze_kit_override_repoints_lanes(session_file, capsys):
+    """--kit is the re-pointable pointer (§4.2); a bogus explicit id errors."""
+    assert main(["analyze", str(session_file), "--kit", "no-such-kit"]) == 1
+    out = capsys.readouterr().out
+    assert "error" in out

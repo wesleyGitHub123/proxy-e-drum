@@ -4,7 +4,7 @@
 
 namespace edrum {
 
-ControlResult ControlDispatcher::start_grid(uint64_t now_us) {
+ControlResult ControlDispatcher::start_grid(uint64_t now_us, const TrigRef& trigger) {
     ControlResult r{};
     uint16_t bpm;
     uint8_t subdiv;
@@ -13,14 +13,15 @@ ControlResult ControlDispatcher::start_grid(uint64_t now_us) {
         r.outcome = ControlOutcome::GridRefusedNoClick;
         return r;
     }
-    fsm_.grid_start(now_us, bpm, subdiv, downbeat_us);
+    fsm_.grid_start(now_us, bpm, subdiv, downbeat_us, trigger);
     r.outcome = ControlOutcome::GridOpened;
     r.bpm = bpm;
     r.subdiv = subdiv;
     return r;
 }
 
-ControlResult ControlDispatcher::start_enroll(uint64_t now_us, const char* ref) {
+ControlResult ControlDispatcher::start_enroll(uint64_t now_us, const char* ref,
+                                              const TrigRef& trigger) {
     ControlResult r{};
     uint16_t bpm;
     uint8_t subdiv;
@@ -29,7 +30,7 @@ ControlResult ControlDispatcher::start_enroll(uint64_t now_us, const char* ref) 
         r.outcome = ControlOutcome::EnrollRefusedNoClick;
         return r;
     }
-    fsm_.enroll_start(now_us, ref, bpm, subdiv, downbeat_us);
+    fsm_.enroll_start(now_us, ref, bpm, subdiv, downbeat_us, trigger);
     r.outcome = ControlOutcome::EnrollOpened;
     r.bpm = bpm;
     r.subdiv = subdiv;
@@ -42,37 +43,37 @@ ControlResult ControlDispatcher::dispatch(const ControlMsg& msg, uint64_t now_us
     ControlResult r{};
     switch (msg.op) {
         case ControlMsg::Op::Bookmark:
-            fsm_.bookmark(now_us);
+            fsm_.bookmark(now_us, msg.trigger);
             r.outcome = ControlOutcome::BookmarkAdded;
             return r;
 
         case ControlMsg::Op::GridStart:
-            return start_grid(now_us);
+            return start_grid(now_us, msg.trigger);
 
         case ControlMsg::Op::GridEnd:
-            r.outcome = fsm_.grid_end(now_us) ? ControlOutcome::GridClosed
-                                              : ControlOutcome::GridNoSpanOpen;
+            r.outcome = fsm_.grid_end(now_us, msg.trigger) ? ControlOutcome::GridClosed
+                                                           : ControlOutcome::GridNoSpanOpen;
             return r;
 
         case ControlMsg::Op::GridToggle:
             if (fsm_.grid_open()) {
-                fsm_.grid_end(now_us);
+                fsm_.grid_end(now_us, msg.trigger);
                 r.outcome = ControlOutcome::GridClosed;
                 return r;
             }
-            return start_grid(now_us);
+            return start_grid(now_us, msg.trigger);
 
         case ControlMsg::Op::EnrollStart:
-            return start_enroll(now_us, msg.ref);
+            return start_enroll(now_us, msg.ref, msg.trigger);
 
         case ControlMsg::Op::EnrollEnd:
-            r.outcome = fsm_.enroll_end(now_us) ? ControlOutcome::EnrollClosed
-                                                : ControlOutcome::EnrollNoSpanOpen;
+            r.outcome = fsm_.enroll_end(now_us, msg.trigger) ? ControlOutcome::EnrollClosed
+                                                             : ControlOutcome::EnrollNoSpanOpen;
             return r;
 
         case ControlMsg::Op::EnrollToggle:
             if (fsm_.enroll_open()) {
-                fsm_.enroll_end(now_us);
+                fsm_.enroll_end(now_us, msg.trigger);
                 r.outcome = ControlOutcome::EnrollClosed;
                 return r;
             }
@@ -80,7 +81,7 @@ ControlResult ControlDispatcher::dispatch(const ControlMsg& msg, uint64_t now_us
             // controller (gesture, hardware button) has no label to offer,
             // so this is always anonymous. A controller that DOES have a
             // label uses EnrollStart directly instead of the toggle.
-            return start_enroll(now_us, "");
+            return start_enroll(now_us, "", msg.trigger);
 
         case ControlMsg::Op::EndSession:
             fsm_.end_session(now_us);

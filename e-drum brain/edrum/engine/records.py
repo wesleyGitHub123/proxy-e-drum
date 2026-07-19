@@ -90,6 +90,31 @@ def _check_number(name: str, v: object) -> None:
     raise RecordError(f"{name} must be a finite number, got {v!r}")
 
 
+def _normalize_trigger_span(record: object) -> None:
+    """Validate and normalize a declaration's optional ``trigger_span``.
+
+    The additive field (phase1-stats-plan F1 / micro-decision 18): when a
+    declaration was produced by a pad gesture, ``trigger_span = (t0, t1)``
+    brackets the trigger hits (first chord's first hit .. last chord's last
+    hit) so the engine can exclude them from analysis by default (spec §5).
+    ``None`` = not gesture-produced (console/app) or an older producer.
+    Accepts any 2-sequence of ints on construction; stored as a tuple.
+    """
+    span = getattr(record, "trigger_span")
+    if span is None:
+        return
+    if (
+        not isinstance(span, (tuple, list))
+        or len(span) != 2
+        or not all(_is_int(v) and v >= 0 for v in span)
+        or span[0] > span[1]
+    ):
+        raise RecordError(
+            f"trigger_span must be [t0, t1] with 0 <= t0 <= t1 (ms), got {span!r}"
+        )
+    object.__setattr__(record, "trigger_span", (span[0], span[1]))
+
+
 # ---------------------------------------------------------------------------
 # record types
 # ---------------------------------------------------------------------------
@@ -180,6 +205,7 @@ class GridStartRecord:
     bpm: int | float
     subdiv: int
     downbeat_t: int
+    trigger_span: tuple[int, int] | None = None  # gesture trigger hits (F1, additive)
 
     def __post_init__(self) -> None:
         _check_t(self.t)
@@ -189,22 +215,27 @@ class GridStartRecord:
         if not _is_int(self.subdiv) or self.subdiv < 1:
             raise RecordError(f"subdiv must be a positive integer, got {self.subdiv!r}")
         _check_t(self.downbeat_t)
+        _normalize_trigger_span(self)
 
 
 @dataclass(frozen=True)
 class GridEndRecord:
     t: int
+    trigger_span: tuple[int, int] | None = None
 
     def __post_init__(self) -> None:
         _check_t(self.t)
+        _normalize_trigger_span(self)
 
 
 @dataclass(frozen=True)
 class BookmarkRecord:
     t: int
+    trigger_span: tuple[int, int] | None = None
 
     def __post_init__(self) -> None:
         _check_t(self.t)
+        _normalize_trigger_span(self)
 
 
 @dataclass(frozen=True)
@@ -223,6 +254,7 @@ class EnrollStartRecord:
     bpm: int | float
     subdiv: int
     downbeat_t: int
+    trigger_span: tuple[int, int] | None = None
 
     def __post_init__(self) -> None:
         _check_t(self.t)
@@ -234,14 +266,17 @@ class EnrollStartRecord:
         if not _is_int(self.subdiv) or self.subdiv < 1:
             raise RecordError(f"subdiv must be a positive integer, got {self.subdiv!r}")
         _check_t(self.downbeat_t)
+        _normalize_trigger_span(self)
 
 
 @dataclass(frozen=True)
 class EnrollEndRecord:
     t: int
+    trigger_span: tuple[int, int] | None = None
 
     def __post_init__(self) -> None:
         _check_t(self.t)
+        _normalize_trigger_span(self)
 
 
 @dataclass(frozen=True)
@@ -317,37 +352,54 @@ def _ctrl_obj(r: CtrlRecord) -> dict:
     return {"type": "ctrl", "t": r.t, "msg": _canonical_msg(r.msg)}
 
 
+def _with_trigger_span(obj: dict, record) -> dict:
+    """Append the optional trigger_span as the LAST key (canonical position).
+
+    Omitted entirely when None, which is what keeps every pre-F1 file and
+    golden fixture byte-identical under round-trip.
+    """
+    if record.trigger_span is not None:
+        obj["trigger_span"] = list(record.trigger_span)
+    return obj
+
+
 def _grid_start_obj(r: GridStartRecord) -> dict:
-    return {
-        "type": "grid_start",
-        "t": r.t,
-        "bpm": r.bpm,
-        "subdiv": r.subdiv,
-        "downbeat_t": r.downbeat_t,
-    }
+    return _with_trigger_span(
+        {
+            "type": "grid_start",
+            "t": r.t,
+            "bpm": r.bpm,
+            "subdiv": r.subdiv,
+            "downbeat_t": r.downbeat_t,
+        },
+        r,
+    )
 
 
 def _grid_end_obj(r: GridEndRecord) -> dict:
-    return {"type": "grid_end", "t": r.t}
+    return _with_trigger_span({"type": "grid_end", "t": r.t}, r)
 
 
 def _bookmark_obj(r: BookmarkRecord) -> dict:
-    return {"type": "bookmark", "t": r.t}
+    return _with_trigger_span({"type": "bookmark", "t": r.t}, r)
 
 
 def _enroll_start_obj(r: EnrollStartRecord) -> dict:
-    return {
-        "type": "enroll_start",
-        "t": r.t,
-        "profile_ref": r.profile_ref,
-        "bpm": r.bpm,
-        "subdiv": r.subdiv,
-        "downbeat_t": r.downbeat_t,
-    }
+    return _with_trigger_span(
+        {
+            "type": "enroll_start",
+            "t": r.t,
+            "profile_ref": r.profile_ref,
+            "bpm": r.bpm,
+            "subdiv": r.subdiv,
+            "downbeat_t": r.downbeat_t,
+        },
+        r,
+    )
 
 
 def _enroll_end_obj(r: EnrollEndRecord) -> dict:
-    return {"type": "enroll_end", "t": r.t}
+    return _with_trigger_span({"type": "enroll_end", "t": r.t}, r)
 
 
 def _session_end_obj(r: SessionEndRecord) -> dict:
@@ -421,15 +473,16 @@ def _parse_grid_start(obj: dict) -> GridStartRecord:
         bpm=obj.get("bpm"),
         subdiv=obj.get("subdiv"),
         downbeat_t=obj.get("downbeat_t"),
+        trigger_span=obj.get("trigger_span"),
     )
 
 
 def _parse_grid_end(obj: dict) -> GridEndRecord:
-    return GridEndRecord(t=obj.get("t"))
+    return GridEndRecord(t=obj.get("t"), trigger_span=obj.get("trigger_span"))
 
 
 def _parse_bookmark(obj: dict) -> BookmarkRecord:
-    return BookmarkRecord(t=obj.get("t"))
+    return BookmarkRecord(t=obj.get("t"), trigger_span=obj.get("trigger_span"))
 
 
 def _parse_enroll_start(obj: dict) -> EnrollStartRecord:
@@ -439,11 +492,12 @@ def _parse_enroll_start(obj: dict) -> EnrollStartRecord:
         bpm=obj.get("bpm"),
         subdiv=obj.get("subdiv"),
         downbeat_t=obj.get("downbeat_t"),
+        trigger_span=obj.get("trigger_span"),
     )
 
 
 def _parse_enroll_end(obj: dict) -> EnrollEndRecord:
-    return EnrollEndRecord(t=obj.get("t"))
+    return EnrollEndRecord(t=obj.get("t"), trigger_span=obj.get("trigger_span"))
 
 
 def _parse_session_end(obj: dict) -> SessionEndRecord:

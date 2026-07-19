@@ -191,6 +191,12 @@ void capture_task(void*) {
                 break;
         }
         if (has_gesture) {
+            // Trigger-hit provenance (capture spec §5): the detector runs on
+            // clock-ms (see CaptureSink), so scale back to clock-µs; the FSM
+            // converts to session-t like the downbeat anchor.
+            gmsg.trigger.present = true;
+            gmsg.trigger.t0_us = (uint64_t)app.gestures->span_t0() * 1000;
+            gmsg.trigger.t1_us = (uint64_t)app.gestures->span_t1() * 1000;
             report_control(dispatcher.dispatch(gmsg, now));
         }
     }

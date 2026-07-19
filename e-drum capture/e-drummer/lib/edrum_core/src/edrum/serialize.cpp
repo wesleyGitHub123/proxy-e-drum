@@ -105,6 +105,20 @@ void t_field(Out& o, uint32_t t) {
     o.integer((int64_t)t);
 }
 
+// Optional gesture trigger-hit span — the LAST key of a declaration line
+// (mirrors edrum.engine.records._with_trigger_span; canonical position).
+// Omitted entirely when absent, which is what keeps console-produced
+// declarations and every pre-F1 golden fixture byte-identical.
+void trigger_span_field(Out& o, const TrigSpanP& trig) {
+    if (!trig.present) return;
+    o.key("trigger_span");
+    o.ch('[');
+    o.integer((int64_t)trig.t0);
+    o.ch(',');
+    o.integer((int64_t)trig.t1);
+    o.ch(']');
+}
+
 // ctrl msg payload for a raw (non-sysex) MIDI message, mido-style names,
 // key order: "type" first, remaining keys sorted alphabetically
 // (phase0-plan micro-decision 1).
@@ -273,18 +287,21 @@ size_t record_line(const CaptureRecord& rec, char* out, size_t cap) {
             o.integer(rec.u.grid.subdiv);
             o.key("downbeat_t");
             o.integer(rec.u.grid.downbeat_t);
+            trigger_span_field(o, rec.trig);
             o.ch('}');
             break;
 
         case RecType::GridEnd:
             open_typed(o, "grid_end");
             t_field(o, rec.t);
+            trigger_span_field(o, rec.trig);
             o.ch('}');
             break;
 
         case RecType::Bookmark:
             open_typed(o, "bookmark");
             t_field(o, rec.t);
+            trigger_span_field(o, rec.trig);
             o.ch('}');
             break;
 
@@ -292,19 +309,25 @@ size_t record_line(const CaptureRecord& rec, char* out, size_t cap) {
             open_typed(o, "enroll_start");
             t_field(o, rec.t);
             o.key("profile_ref");
-            o.quoted(rec.u.enroll.profile_ref);
+            if (rec.u.enroll.profile_ref[0] == '\0') {
+                o.raw("null");  // no label supplied — anonymous enrollment
+            } else {
+                o.quoted(rec.u.enroll.profile_ref);
+            }
             o.key("bpm");
             o.integer(rec.u.enroll.bpm);
             o.key("subdiv");
             o.integer(rec.u.enroll.subdiv);
             o.key("downbeat_t");
             o.integer(rec.u.enroll.downbeat_t);
+            trigger_span_field(o, rec.trig);
             o.ch('}');
             break;
 
         case RecType::EnrollEnd:
             open_typed(o, "enroll_end");
             t_field(o, rec.t);
+            trigger_span_field(o, rec.trig);
             o.ch('}');
             break;
 

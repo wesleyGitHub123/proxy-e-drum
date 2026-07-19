@@ -41,6 +41,24 @@ uint32_t SessionController::stamp(uint64_t now_us) {
     return last_t_;
 }
 
+// Reference times (downbeat anchors, trigger spans) point INTO the timeline,
+// so unlike stamp() they take no monotonic clamp — only the floor at session
+// start, the same conversion the downbeat anchor uses.
+uint32_t SessionController::rel_ms(uint64_t us) const {
+    const uint64_t floored = us < session_start_us_ ? session_start_us_ : us;
+    return (uint32_t)((floored - session_start_us_) / 1000);
+}
+
+TrigSpanP SessionController::trig_span(const TrigRef& trigger) const {
+    TrigSpanP out{};
+    if (trigger.present) {
+        out.present = 1;
+        out.t0 = rel_ms(trigger.t0_us);
+        out.t1 = rel_ms(trigger.t1_us);
+    }
+    return out;
+}
+
 void SessionController::push(const CaptureRecord& rec) {
     if (!sink_.push(rec)) {
         counters_.ring_drops++;  // must stay 0 — Experiment 3's hard criterion
@@ -241,33 +259,35 @@ void SessionController::tick(uint64_t now_us) {
     }
 }
 
-void SessionController::bookmark(uint64_t now_us) {
+void SessionController::bookmark(uint64_t now_us, const TrigRef& trigger) {
     ensure_session(now_us);
     CaptureRecord r{};
     r.type = RecType::Bookmark;
     r.t = stamp(now_us);
+    r.trig = trig_span(trigger);
     push(r);
     last_activity_us_ = now_us;
 }
 
 void SessionController::grid_start(uint64_t now_us, uint16_t bpm, uint8_t subdiv,
-                                   uint64_t downbeat_us) {
+                                   uint64_t downbeat_us, const TrigRef& trigger) {
     ensure_session(now_us);
     CaptureRecord r{};
     r.type = RecType::GridStart;
     r.t = stamp(now_us);
-    const uint64_t anchor = downbeat_us < session_start_us_ ? session_start_us_ : downbeat_us;
-    r.u.grid = GridP{bpm, subdiv, (uint32_t)((anchor - session_start_us_) / 1000)};
+    r.u.grid = GridP{bpm, subdiv, rel_ms(downbeat_us)};
+    r.trig = trig_span(trigger);
     push(r);
     grid_open_ = true;  // re-declaration = §5 param-change rule; brain folds it
     last_activity_us_ = now_us;
 }
 
-bool SessionController::grid_end(uint64_t now_us) {
+bool SessionController::grid_end(uint64_t now_us, const TrigRef& trigger) {
     if (!in_session_ || !grid_open_) return false;
     CaptureRecord r{};
     r.type = RecType::GridEnd;
     r.t = stamp(now_us);
+    r.trig = trig_span(trigger);
     push(r);
     grid_open_ = false;
     last_activity_us_ = now_us;
@@ -275,7 +295,8 @@ bool SessionController::grid_end(uint64_t now_us) {
 }
 
 void SessionController::enroll_start(uint64_t now_us, const char* profile_ref,
-                                     uint16_t bpm, uint8_t subdiv, uint64_t downbeat_us) {
+                                     uint16_t bpm, uint8_t subdiv, uint64_t downbeat_us,
+                                     const TrigRef& trigger) {
     ensure_session(now_us);
     if (enroll_open_) {
         enroll_end(now_us);  // tidy files: auto-close the previous span
@@ -287,18 +308,19 @@ void SessionController::enroll_start(uint64_t now_us, const char* profile_ref,
     r.u.enroll.profile_ref[kProfileRefMax] = '\0';
     r.u.enroll.bpm = bpm;
     r.u.enroll.subdiv = subdiv;
-    const uint64_t anchor = downbeat_us < session_start_us_ ? session_start_us_ : downbeat_us;
-    r.u.enroll.downbeat_t = (uint32_t)((anchor - session_start_us_) / 1000);
+    r.u.enroll.downbeat_t = rel_ms(downbeat_us);
+    r.trig = trig_span(trigger);
     push(r);
     enroll_open_ = true;
     last_activity_us_ = now_us;
 }
 
-bool SessionController::enroll_end(uint64_t now_us) {
+bool SessionController::enroll_end(uint64_t now_us, const TrigRef& trigger) {
     if (!in_session_ || !enroll_open_) return false;
     CaptureRecord r{};
     r.type = RecType::EnrollEnd;
     r.t = stamp(now_us);
+    r.trig = trig_span(trigger);
     push(r);
     enroll_open_ = false;
     last_activity_us_ = now_us;

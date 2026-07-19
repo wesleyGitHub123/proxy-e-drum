@@ -30,8 +30,8 @@ public:
     ControlResult dispatch(const ControlMsg& msg, uint64_t now_us);
 
 private:
-    ControlResult start_grid(uint64_t now_us);
-    ControlResult start_enroll(uint64_t now_us, const char* ref);
+    ControlResult start_grid(uint64_t now_us, const TrigRef& trigger);
+    ControlResult start_enroll(uint64_t now_us, const char* ref, const TrigRef& trigger);
 
     SessionController& fsm_;
     hal::IClickSnapshot& click_;

@@ -96,6 +96,36 @@ static void test_disabled(void) {
     TEST_ASSERT_TRUE(g.poll(2300) == GestureDetector::Action::None);
 }
 
+// --- trigger-hit span (F1): first hit of first chord .. last hit of last ---
+
+static void test_span_brackets_the_sequence(void) {
+    GestureDetector g(cfg());
+    chord(g, 1000);  // hits at 1000, 1020
+    chord(g, 1500);  // hits at 1500, 1520
+    TEST_ASSERT_TRUE(g.poll(2300) == GestureDetector::Action::Bookmark);
+    TEST_ASSERT_EQUAL_UINT32(1000, g.span_t0());
+    TEST_ASSERT_EQUAL_UINT32(1520, g.span_t1());
+}
+
+static void test_span_first_hit_may_be_note_b(void) {
+    GestureDetector g(cfg());
+    g.on_event(1000, 49, 100);  // crash first
+    g.on_event(1030, 36, 100);
+    chord(g, 1500);
+    TEST_ASSERT_TRUE(g.poll(2300) == GestureDetector::Action::Bookmark);
+    TEST_ASSERT_EQUAL_UINT32(1000, g.span_t0());  // min of the chord pair
+}
+
+static void test_span_restarts_with_stale_sequence(void) {
+    GestureDetector g(cfg());
+    chord(g, 1000);  // goes stale
+    chord(g, 3000);  // new sequence starts here
+    chord(g, 3400);
+    TEST_ASSERT_TRUE(g.poll(4200) == GestureDetector::Action::Bookmark);
+    TEST_ASSERT_EQUAL_UINT32(3000, g.span_t0());  // stale chord not bracketed
+    TEST_ASSERT_EQUAL_UINT32(3420, g.span_t1());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_two_chords_bookmark);
@@ -106,5 +136,8 @@ int main(int, char**) {
     RUN_TEST(test_stale_sequence_restarts);
     RUN_TEST(test_soft_hits_and_other_pads_ignored);
     RUN_TEST(test_disabled);
+    RUN_TEST(test_span_brackets_the_sequence);
+    RUN_TEST(test_span_first_hit_may_be_note_b);
+    RUN_TEST(test_span_restarts_with_stale_sequence);
     return UNITY_END();
 }

@@ -81,9 +81,34 @@ struct EnrollP {
     uint32_t downbeat_t;
 };
 
+// Gesture trigger-hit provenance on a declaration (spec §5: trigger hits are
+// recorded raw but the brain excludes them from analysis by default).
+// [t0, t1] brackets the qualifying trigger hits — first hit of the first
+// chord to last hit of the last chord — in session-relative ms. Additive
+// field: serialized only when present, so console/app-produced declarations
+// and every pre-F1 file are byte-unchanged (ignore-unknown-fields policy).
+struct TrigSpanP {
+    uint8_t present;  // 0 = not gesture-produced
+    uint32_t t0;
+    uint32_t t1;
+};
+
+// The same bracket in clock-µs, as an FSM/dispatcher argument — the caller
+// supplies raw clock time and the FSM converts to session-t, exactly like
+// the grid downbeat anchor (one-clock rule stays structural).
+struct TrigRef {
+    bool present = false;
+    uint64_t t0_us = 0;
+    uint64_t t1_us = 0;
+};
+
 struct CaptureRecord {
     RecType type;
     uint32_t t;  // session-relative integer ms, monotonic, never rebased
+    // Declaration types only (Grid*/Enroll*/Bookmark); zero elsewhere.
+    // Outside the union so bookmark/grid_end/enroll_end (no payload) can
+    // carry it without gaining one.
+    TrigSpanP trig;
     union {
         SessionStartP session_start;
         EventP event;

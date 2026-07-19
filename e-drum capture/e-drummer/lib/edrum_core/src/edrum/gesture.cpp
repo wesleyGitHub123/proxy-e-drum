@@ -28,6 +28,9 @@ void GestureDetector::on_event(uint32_t t, uint8_t note, uint8_t velocity) {
             if (chord_count_ > 0 && t - last_chord_t_ > cfg_.seq_gap_ms) {
                 chord_count_ = 0;  // stale sequence; this chord starts anew
             }
+            if (chord_count_ == 0) {
+                seq_t0_ = a_t_ < b_t_ ? a_t_ : b_t_;  // sequence's first hit
+            }
             ++chord_count_;
             last_chord_t_ = t;
             a_seen_ = b_seen_ = false;
@@ -40,6 +43,8 @@ GestureDetector::Action GestureDetector::poll(uint32_t t) {
     if (t - last_chord_t_ <= cfg_.seq_gap_ms) return Action::None;  // may grow
 
     const uint8_t n = chord_count_;
+    span_t0_ = seq_t0_;
+    span_t1_ = last_chord_t_;  // a chord completes on its second hit
     chord_count_ = 0;
     a_seen_ = b_seen_ = false;
     if (n == 2) return Action::Bookmark;

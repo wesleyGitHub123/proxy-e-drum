@@ -78,6 +78,12 @@ class Session:
     grid_track: list[GridSegment] = field(default_factory=list)
     enrollment_spans: list[EnrollmentSpan] = field(default_factory=list)
     bookmarks: list[int] = field(default_factory=list)
+    # Gesture trigger-hit spans from declaration records (F1, micro-decision
+    # 18): [t0, t1] windows whose events the engine excludes from analysis by
+    # default (spec §5). Collected flat — exclusion doesn't care which
+    # declaration a gesture produced. Raw events are untouched (a mark on a
+    # view, never a deletion).
+    trigger_spans: list[tuple[int, int]] = field(default_factory=list)
     end_t: int | None = None
     warnings: list[str] = field(default_factory=list)
 
@@ -117,6 +123,10 @@ def reduce_session(meta: MetaRecord, records: Iterable[Record]) -> Session:
         if ended and not isinstance(rec, UnknownRecord):
             s.warnings.append(f"record after session_end at t={t}")
             ended = False  # warn once per stretch, keep folding
+
+        span = getattr(rec, "trigger_span", None)
+        if span is not None:
+            s.trigger_spans.append(span)
 
         if isinstance(rec, EventRecord):
             s.events.append(rec)

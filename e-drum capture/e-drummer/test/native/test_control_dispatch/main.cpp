@@ -194,6 +194,48 @@ static void test_enroll_toggle_always_anonymous_regardless_of_ref(void) {
     TEST_ASSERT_FALSE(r.fsm.enroll_open());
 }
 
+static void test_trigger_span_rides_msg_to_record(void) {
+    // F1: gesture trigger provenance flows ControlMsg -> dispatcher -> FSM
+    // -> record, converted clock-µs -> session-t (floored at session start,
+    // no monotonic clamp — it points INTO the timeline, like the downbeat).
+    Rig r;
+    r.click.running = true;
+
+    // Session starts at 1000 ms (first declaration); trigger hits ran
+    // 2500..3920 ms on the clock -> session-t 1500..2920.
+    r.dispatcher.dispatch(op(ControlMsg::Op::Bookmark), 1000 * MS);
+
+    ControlMsg msg = op(ControlMsg::Op::GridToggle);
+    msg.trigger.present = true;
+    msg.trigger.t0_us = 2500 * MS;
+    msg.trigger.t1_us = 3920 * MS;
+    r.dispatcher.dispatch(msg, 4620 * MS);
+    const CaptureRecord& open_rec = r.sink[r.sink.n - 1];
+    TEST_ASSERT_TRUE(open_rec.type == RecType::GridStart);
+    TEST_ASSERT_EQUAL_UINT8(1, open_rec.trig.present);
+    TEST_ASSERT_EQUAL_UINT32(1500, open_rec.trig.t0);
+    TEST_ASSERT_EQUAL_UINT32(2920, open_rec.trig.t1);
+
+    // Toggle-close carries its own (later) gesture span.
+    msg.trigger.t0_us = 9000 * MS;
+    msg.trigger.t1_us = 10400 * MS;
+    r.dispatcher.dispatch(msg, 11100 * MS);
+    const CaptureRecord& close_rec = r.sink[r.sink.n - 1];
+    TEST_ASSERT_TRUE(close_rec.type == RecType::GridEnd);
+    TEST_ASSERT_EQUAL_UINT8(1, close_rec.trig.present);
+    TEST_ASSERT_EQUAL_UINT32(8000, close_rec.trig.t0);
+    TEST_ASSERT_EQUAL_UINT32(9400, close_rec.trig.t1);
+}
+
+static void test_console_declarations_carry_no_trigger_span(void) {
+    Rig r;
+    r.click.running = true;
+    r.dispatcher.dispatch(op(ControlMsg::Op::GridStart), 1000 * MS);  // no trigger set
+    const CaptureRecord& rec = r.sink[r.sink.n - 1];
+    TEST_ASSERT_TRUE(rec.type == RecType::GridStart);
+    TEST_ASSERT_EQUAL_UINT8(0, rec.trig.present);
+}
+
 static void test_end_session_resets_gestures(void) {
     Rig r;
     r.gestures.on_event(1000, 36, 100);
@@ -221,6 +263,8 @@ int main(int, char**) {
     RUN_TEST(test_enroll_start_refused_without_click);
     RUN_TEST(test_enroll_end_no_span_open);
     RUN_TEST(test_enroll_toggle_always_anonymous_regardless_of_ref);
+    RUN_TEST(test_trigger_span_rides_msg_to_record);
+    RUN_TEST(test_console_declarations_carry_no_trigger_span);
     RUN_TEST(test_end_session_resets_gestures);
     return UNITY_END();
 }

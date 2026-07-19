@@ -148,6 +148,55 @@ static void test_declarations(void) {
     TEST_ASSERT_EQUAL_STRING("{\"type\":\"session_end\",\"t\":6500}\n", line_of(r));
 }
 
+static void test_trigger_span_emitted_last_when_present(void) {
+    // F1: gesture-produced declarations carry the trigger-hit bracket as the
+    // LAST key; absent (the cases in test_declarations) they are unchanged —
+    // which is what keeps pre-F1 files and fixtures byte-identical.
+    CaptureRecord r{};
+    r.type = RecType::GridEnd;
+    r.t = 5000;
+    r.trig = TrigSpanP{1, 4600, 4902};
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"grid_end\",\"t\":5000,\"trigger_span\":[4600,4902]}\n", line_of(r));
+
+    r = CaptureRecord{};
+    r.type = RecType::Bookmark;
+    r.t = 3500;
+    r.trig = TrigSpanP{1, 3000, 3120};
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"bookmark\",\"t\":3500,\"trigger_span\":[3000,3120]}\n", line_of(r));
+
+    r = CaptureRecord{};
+    r.type = RecType::GridStart;
+    r.t = 1000;
+    r.u.grid = GridP{120, 4, 1000};
+    r.trig = TrigSpanP{1, 200, 340};
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"grid_start\",\"t\":1000,\"bpm\":120,\"subdiv\":4,\"downbeat_t\":1000,"
+        "\"trigger_span\":[200,340]}\n",
+        line_of(r));
+
+    r = CaptureRecord{};
+    r.type = RecType::EnrollStart;
+    r.t = 4000;
+    r.u.enroll = EnrollP{};  // anonymous — gesture starts carry no label
+    r.u.enroll.bpm = 120;
+    r.u.enroll.subdiv = 4;
+    r.u.enroll.downbeat_t = 4000;
+    r.trig = TrigSpanP{1, 3200, 3400};
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"enroll_start\",\"t\":4000,\"profile_ref\":null,\"bpm\":120,\"subdiv\":4,"
+        "\"downbeat_t\":4000,\"trigger_span\":[3200,3400]}\n",
+        line_of(r));
+
+    r = CaptureRecord{};
+    r.type = RecType::EnrollEnd;
+    r.t = 6000;
+    r.trig = TrigSpanP{1, 5500, 5710};
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"enroll_end\",\"t\":6000,\"trigger_span\":[5500,5710]}\n", line_of(r));
+}
+
 static void test_enroll_start_anonymous(void) {
     // No label supplied at capture time (gesture/hardware-button/quick-app
     // path): profile_ref is empty, which must serialize as JSON null, never
@@ -231,6 +280,7 @@ int main(int, char**) {
     RUN_TEST(test_ctrl_aftertouch_and_program);
     RUN_TEST(test_ctrl_sysex);
     RUN_TEST(test_declarations);
+    RUN_TEST(test_trigger_span_emitted_last_when_present);
     RUN_TEST(test_enroll_start_anonymous);
     RUN_TEST(test_meta_null_and_int_calibration);
     RUN_TEST(test_json_escape);

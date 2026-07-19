@@ -37,6 +37,13 @@ struct ControlMsg {
     };
     Op op = Op::Bookmark;
     char ref[kProfileRefMax + 1] = {0};  // EnrollStart only
+    // Trigger-hit provenance (capture spec §5): when the controller derived
+    // this declaration from played pad hits (the gesture grammar), [t0, t1]
+    // brackets those hits in clock-µs; the FSM converts to session-t exactly
+    // like the grid downbeat anchor. Controllers with no pads involved
+    // (console, app, BLE) leave it absent — same optional-provenance pattern
+    // as `ref`.
+    TrigRef trigger{};
 };
 
 // What happened, for the controller/console to render. The dispatcher does

@@ -1,4 +1,11 @@
-# Phase 1 Implementation Plan — PROPOSED (awaiting approval)
+# Phase 1 Implementation Plan — SUPERSEDED (historical record)
+
+*Superseded 2026-07-12 by `phase1-stats-plan.md`: the firmware became the capture
+half (click authority, gesture/console declarations, SD logging, byte-exact
+serialization, `edrum sync`), which deleted this plan's pulled-forward capture
+surface (S11/S12, micro-decision 14) and reversed several of its assumptions. Its
+analysis-side content (S9/S10 semantics, micro-decisions 7–12/15) survives there in
+amended form. Kept as the rationale record for decisions made in that world.*
 
 *Drafted 2026-07-07. This document is the proposed implementation contract for the next
 brain milestone after Phase 0, at the same rigor as `phase0-plan.md` (which drove a

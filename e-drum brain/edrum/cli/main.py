@@ -4,7 +4,9 @@ Commands:
     edrum ports                    list MIDI input ports (needs [live] extra)
     edrum record                   capture a session from a live port
     edrum replay FILE              round-trip byte-identity check (Phase 0 gate)
-
+    edrum dump FILE [--normalized] inspect a session file
+    edrum analyze FILE [--json]    Layer A analysis: timing/velocity/IOI
+                                   (phase1-stats-plan; results derived, never stored)
     edrum sync --port COMx         pull session files off the capture box
                                    (needs [device] extra; capture spec §13)
     edrum rm --port COMx NAME      delete one closed session off the capture
@@ -261,6 +263,78 @@ def _quality_str(q) -> str:
     return " ".join(parts)
 
 
+def cmd_analyze(args) -> int:
+    """Thin caller for the analysis pipeline (engine/analysis.py). All
+    rendering here is generic over the result envelope — a newly registered
+    analyzer shows up with zero CLI changes (micro-decision 19)."""
+    import json as _json
+
+    from edrum.engine.analysis import report_to_dict, run_analyses
+
+    path = Path(args.file)
+    lr = read_log(path)
+    session = reduce_session(lr.meta, lr.records)
+
+    analyzers = None
+    if args.metrics is not None:
+        from edrum.engine.analyzers import by_id
+
+        analyzers = []
+        for metric_id in args.metrics.split(","):
+            analyzer = by_id(metric_id.strip())
+            if analyzer is None:
+                from edrum.engine.analyzers import ALL
+
+                print(f"error: unknown metric {metric_id.strip()!r}; available:")
+                for a in ALL:
+                    print(f"  {a.id}")
+                return 1
+            analyzers.append(analyzer)
+
+    # Profile resolution: --kit is the re-pointable override (spec §4.2);
+    # otherwise follow the meta pointer. No profile is not an error — the
+    # profile-dependent analyzers refuse honestly instead.
+    profile = None
+    profile_warn = None
+    profile_id = args.kit or session.meta.kit_profile_id
+    if profile_id is not None:
+        try:
+            profile = _load_profile_by_id(profile_id, Path(args.profiles_dir))
+        except ProfileError as exc:
+            if args.kit:
+                print(f"error: {exc}")
+                return 1
+            profile_warn = f"profile {profile_id!r} not loadable ({exc}); lane views unavailable"
+
+    report = run_analyses(session, profile=profile, analyzers=analyzers)
+
+    if args.json:
+        print(_json.dumps(report_to_dict(report), indent=2))
+        return 0
+
+    print(f"session   {report.session_id}")
+    if report.profile_id is not None:
+        print(f"profile   {report.profile_id} v{report.profile_version}")
+    cal = report.calibration_offset_ms
+    print(f"calibration_offset_ms {cal}" + ("" if report.calibrated else "  (uncalibrated)"))
+    if profile_warn:
+        print(f"warning   {profile_warn}")
+    for warning in report.warnings:
+        print(f"warning   {warning}")
+    for refusal in report.refusals:
+        print(f"refused   {refusal.analyzer_id}: {refusal.reason}"
+              + (f" ({refusal.detail})" if refusal.detail else ""))
+
+    current_id = None
+    for r in report.results:
+        if r.analyzer_id != current_id:
+            current_id = r.analyzer_id
+            print(f"{current_id} (v{r.analyzer_version})")
+        print(f"  {_scope_str(r.scope):<44} {_value_str(r.value, r.unit):<28}"
+              f" {_quality_str(r.quality)}")
+    return 0
+
+
 def cmd_sync(args) -> int:
     """Pull the capture box's session archive over the device link
     (capture spec §13). Byte-exact replication: a synced file is
@@ -413,6 +487,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_dump.add_argument("--limit", type=int, default=None, help="max events to print")
     p_dump.set_defaults(func=cmd_dump)
+
+    p_an = sub.add_parser("analyze", help="Layer A analysis of a session file")
+    p_an.add_argument("file")
+    p_an.add_argument("--json", action="store_true", help="emit the full report as JSON")
+    p_an.add_argument(
+        "--kit", default=None,
+        help="override the kit profile id (re-pointable pointer, spec §4.2)",
+    )
+    p_an.add_argument(
+        "--profiles-dir", default=str(default_profiles_dir()), help="profile registry directory"
+    )
+    p_an.add_argument(
+        "--metrics", default=None,
+        help="comma-separated analyzer ids to run (default: all registered)",
+    )
+    p_an.set_defaults(func=cmd_analyze)
 
     p_sync = sub.add_parser("sync", help="pull session files off the capture box")
     p_sync.add_argument("--port", required=True, help="serial port (e.g. COM5, /dev/ttyUSB0)")

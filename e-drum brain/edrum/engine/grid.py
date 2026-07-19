@@ -2,17 +2,26 @@
 
 Micro-decisions 8′, 9, 12 (phase1-stats-plan Part C):
 
-    * The lattice: ``tick_ms = 60000 / bpm / subdiv``; gridlines are
-      ``downbeat_t + k * tick_ms`` for ALL integers k — unbounded in both
-      directions. A grid segment bounds which *events* are graded, never
-      which lattice points exist.
+    * The lattice is PER SEGMENT: ``tick_ms = 60000 / bpm / subdiv``;
+      gridlines are ``downbeat_t + k * tick_ms`` for ALL integers k —
+      unbounded in both directions *within that segment's own arithmetic*.
+      A grid segment bounds which *events* are graded, never which lattice
+      points exist. A session is a chain of independently-anchored lattices
+      (one per segment), NOT one session-wide grid: each tempo/subdiv change
+      re-declares the span with a fresh ``downbeat_t``, and beat phase /
+      lattice index ``k`` are meaningful only relative to one segment's
+      anchor — phase continuity ACROSS a segment boundary is undefined
+      (the producer's click restarts from a new anchor on every param
+      change; no relationship between adjacent segments' ``k`` exists).
+      Never pool ``k`` or fold beat-relative positions across segments as
+      if they shared a phase origin.
     * ``downbeat_t`` is a BEAT edge of the running click **as written by the
       producer** (8′). The firmware anchors declarations at the first beat
       edge at or after the declaration (``ClickScheduler::next_edge_at_or_after``),
       so ``downbeat_t`` may legitimately be AFTER a segment's ``start_t``;
       nothing here may assume otherwise. Beat-anchoring (never
       subdivision-anchoring) is the load-bearing property — it preserves beat
-      phase for Layer C folding.
+      phase *within the segment* for Layer C folding.
     * ``subdiv`` = ticks per beat: 1=quarters, 2=8ths, 3=8th-triplets, 4=16ths.
     * Segment membership is inclusive ``[start_t, end_t]``; where two segments
       share a boundary t, the LATER segment wins (the param change takes

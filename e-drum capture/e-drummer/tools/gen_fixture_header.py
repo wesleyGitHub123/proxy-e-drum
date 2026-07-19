@@ -28,6 +28,10 @@ NAMES = {
     "declarations": "kFixtureDeclarations",
     "warmup_no_grid": "kFixtureWarmupNoGrid",
     "anonymous_enroll": "kFixtureAnonymousEnroll",
+    # phase1-stats-plan: graded synthetic pair — trigger_span on grid_end
+    # (F1) and a calibrated meta (calibration_offset_ms as an integer).
+    "graded_synthetic": "kFixtureGradedSynthetic",
+    "graded_synthetic_calibrated": "kFixtureGradedSyntheticCalibrated",
 }
 
 

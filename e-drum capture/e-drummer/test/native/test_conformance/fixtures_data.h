@@ -53,3 +53,43 @@ static const char kFixtureAnonymousEnroll[] =
     "{\"type\":\"grid_end\",\"t\":3000}\n"
     "{\"type\":\"session_end\",\"t\":3500}\n"
 ;
+
+static const char kFixtureGradedSynthetic[] =
+    "{\"type\":\"meta\",\"schema_version\":2,\"session_id\":\"44444444aaaa4bbb8ccc000000000004\",\"start_iso\":\"2026-07-13T10:00:00+08:00\",\"kit_profile_id\":\"td02k\",\"user_id\":\"local\",\"calibration_offset_ms\":null}\n"
+    "{\"type\":\"event\",\"t\":200,\"note\":42,\"velocity\":60,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":450,\"note\":42,\"velocity\":70,\"channel\":9}\n"
+    "{\"type\":\"grid_start\",\"t\":1000,\"bpm\":120,\"subdiv\":4,\"downbeat_t\":1000}\n"
+    "{\"type\":\"event\",\"t\":1000,\"note\":36,\"velocity\":100,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":1135,\"note\":38,\"velocity\":90,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":1240,\"note\":36,\"velocity\":100,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":1520,\"note\":38,\"velocity\":90,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":1730,\"note\":36,\"velocity\":100,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":1905,\"note\":38,\"velocity\":90,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":2050,\"note\":42,\"velocity\":60,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":4600,\"note\":36,\"velocity\":127,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":4602,\"note\":49,\"velocity\":127,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":4900,\"note\":36,\"velocity\":127,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":4902,\"note\":49,\"velocity\":127,\"channel\":9}\n"
+    "{\"type\":\"grid_end\",\"t\":5000,\"trigger_span\":[4600,4902]}\n"
+    "{\"type\":\"session_end\",\"t\":6000}\n"
+;
+
+static const char kFixtureGradedSyntheticCalibrated[] =
+    "{\"type\":\"meta\",\"schema_version\":2,\"session_id\":\"66666666aaaa4bbb8ccc000000000006\",\"start_iso\":\"2026-07-13T10:05:00+08:00\",\"kit_profile_id\":\"td02k\",\"user_id\":\"local\",\"calibration_offset_ms\":15}\n"
+    "{\"type\":\"event\",\"t\":215,\"note\":42,\"velocity\":60,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":465,\"note\":42,\"velocity\":70,\"channel\":9}\n"
+    "{\"type\":\"grid_start\",\"t\":1000,\"bpm\":120,\"subdiv\":4,\"downbeat_t\":1000}\n"
+    "{\"type\":\"event\",\"t\":1015,\"note\":36,\"velocity\":100,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":1150,\"note\":38,\"velocity\":90,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":1255,\"note\":36,\"velocity\":100,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":1535,\"note\":38,\"velocity\":90,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":1745,\"note\":36,\"velocity\":100,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":1920,\"note\":38,\"velocity\":90,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":2065,\"note\":42,\"velocity\":60,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":4615,\"note\":36,\"velocity\":127,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":4617,\"note\":49,\"velocity\":127,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":4915,\"note\":36,\"velocity\":127,\"channel\":9}\n"
+    "{\"type\":\"event\",\"t\":4917,\"note\":49,\"velocity\":127,\"channel\":9}\n"
+    "{\"type\":\"grid_end\",\"t\":5000,\"trigger_span\":[4615,4917]}\n"
+    "{\"type\":\"session_end\",\"t\":6000}\n"
+;

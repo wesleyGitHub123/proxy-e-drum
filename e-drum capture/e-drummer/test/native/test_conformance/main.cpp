@@ -23,14 +23,16 @@ struct FileBuilder {
     char data[8192];
     size_t len = 0;
 
-    void meta(const char* session_id, const char* start_iso) {
+    void meta(const char* session_id, const char* start_iso,
+              bool has_calibration = false, int32_t calibration_offset_ms = 0) {
         SessionStartP s{};
         strncpy(s.session_id, session_id, kSessionIdLen);
         strncpy(s.start_iso, start_iso, kIsoMax);
         MetaStatic ms{};
         strcpy(ms.kit_profile_id, "td02k");
         strcpy(ms.user_id, "local");
-        ms.has_calibration = false;
+        ms.has_calibration = has_calibration;
+        ms.calibration_offset_ms = calibration_offset_ms;
         const size_t n = meta_line(s, ms, data + len, sizeof(data) - len);
         TEST_ASSERT_TRUE_MESSAGE(n > 0, "meta_line failed");
         len += n;
@@ -188,10 +190,63 @@ static void test_fixture_warmup_no_grid(void) {
     f.expect(kFixtureWarmupNoGrid, "warmup_no_grid.jsonl");
 }
 
+// phase1-stats-plan D.6.7: the graded synthetic pair — golden-VALUE fixture
+// on the brain side, byte-conformance case here. Exercises the F1
+// trigger_span field on grid_end (gesture-closed span) and, in the
+// calibrated variant, an integer calibration_offset_ms in meta (previously
+// only the null case had fixture coverage).
+static void build_graded(FileBuilder& f, uint32_t shift) {
+    const struct { uint32_t t; uint8_t note; uint8_t vel; } hits[] = {
+        {200, 42, 60},  {450, 42, 70},                    // free-play warmup
+        {1000, 36, 100}, {1135, 38, 90}, {1240, 36, 100},  // designed deviations
+        {1520, 38, 90},  {1730, 36, 100}, {1905, 38, 90},
+        {2050, 42, 60},                                    // ambiguous (+50)
+        {4600, 36, 127}, {4602, 49, 127},                  // gesture burst
+        {4900, 36, 127}, {4902, 49, 127},
+    };
+
+    f.event(hits[0].t + shift, hits[0].note, hits[0].vel);
+    f.event(hits[1].t + shift, hits[1].note, hits[1].vel);
+
+    CaptureRecord r{};
+    r.type = RecType::GridStart;
+    r.t = 1000;
+    r.u.grid = GridP{120, 4, 1000};
+    f.add(r);
+
+    for (int i = 2; i < 13; ++i) f.event(hits[i].t + shift, hits[i].note, hits[i].vel);
+
+    r = CaptureRecord{};
+    r.type = RecType::GridEnd;
+    r.t = 5000;
+    r.trig = TrigSpanP{1, 4600 + shift, 4902 + shift};
+    f.add(r);
+
+    f.end(6000);
+}
+
+static void test_fixture_graded_synthetic(void) {
+    FileBuilder f;
+    f.meta("44444444aaaa4bbb8ccc000000000004", "2026-07-13T10:00:00+08:00");
+    build_graded(f, 0);
+    f.expect(kFixtureGradedSynthetic, "graded_synthetic.jsonl");
+}
+
+static void test_fixture_graded_synthetic_calibrated(void) {
+    FileBuilder f;
+    f.meta("66666666aaaa4bbb8ccc000000000006", "2026-07-13T10:05:00+08:00",
+           /*has_calibration=*/true, /*calibration_offset_ms=*/15);
+    build_graded(f, 15);  // identical performance heard 15 ms late
+    f.expect(kFixtureGradedSyntheticCalibrated, "graded_synthetic_calibrated.jsonl");
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_fixture_minimal);
     RUN_TEST(test_fixture_declarations);
+    RUN_TEST(test_fixture_anonymous_enroll);  // was defined but never run
     RUN_TEST(test_fixture_warmup_no_grid);
+    RUN_TEST(test_fixture_graded_synthetic);
+    RUN_TEST(test_fixture_graded_synthetic_calibrated);
     return UNITY_END();
 }

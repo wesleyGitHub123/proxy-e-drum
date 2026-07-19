@@ -5,6 +5,8 @@
 // touches the ring or the FSM directly.
 #include "app.h"
 
+#include <string.h>
+
 #include "edrum/console_cmd.h"
 #include "edrum/timefmt.h"
 
@@ -110,6 +112,15 @@ void execute(const Command& cmd) {
                 // §5 param-change rule: re-declare the span at the new tempo
                 ControlMsg msg{};
                 msg.op = ControlMsg::Op::GridStart;
+                post(msg);
+            }
+            if (app.fsm->enroll_open()) {
+                // same rule for an open enrollment span — its click snapshot
+                // is stale too; carry the ref forward ("" stays anonymous).
+                // FSM auto-closes the old span, so the log gets end + start.
+                ControlMsg msg{};
+                msg.op = ControlMsg::Op::EnrollStart;
+                strncpy(msg.ref, app.fsm->enroll_ref(), sizeof(msg.ref) - 1);
                 post(msg);
             }
             break;

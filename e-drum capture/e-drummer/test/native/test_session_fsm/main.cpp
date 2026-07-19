@@ -176,6 +176,35 @@ static void test_declaration_starts_session_and_downbeat_clamped(void) {
     TEST_ASSERT_EQUAL_UINT32(2500, r.sink[r.sink.n - 1].u.grid.downbeat_t);
 }
 
+static void test_enroll_redeclare_splits_span_and_keeps_ref(void) {
+    Rig r;
+    // enrollment open at 120 bpm; the FSM retains the ref so a controller
+    // can re-declare on a click param change (§5 param-change rule)
+    r.fsm->enroll_start(1000 * MS, "groove-a", 120, 4, 2000 * MS);
+    TEST_ASSERT_TRUE(r.fsm->enroll_open());
+    TEST_ASSERT_EQUAL_STRING("groove-a", r.fsm->enroll_ref());
+    const int before = r.sink.n;
+
+    // tempo change mid-enrollment: re-declare with the new click snapshot →
+    // the log carries EnrollEnd + EnrollStart (span split at the change)
+    r.fsm->enroll_start(10000 * MS, "groove-a", 90, 4, 10200 * MS);
+    TEST_ASSERT_EQUAL_INT(before + 2, r.sink.n);
+    TEST_ASSERT_TRUE(r.sink[r.sink.n - 2].type == RecType::EnrollEnd);
+    TEST_ASSERT_EQUAL_UINT32(9000, r.sink[r.sink.n - 2].t);
+    const CaptureRecord& start2 = r.sink[r.sink.n - 1];
+    TEST_ASSERT_TRUE(start2.type == RecType::EnrollStart);
+    TEST_ASSERT_EQUAL_UINT16(90, start2.u.enroll.bpm);
+    TEST_ASSERT_EQUAL_UINT32(9200, start2.u.enroll.downbeat_t);
+    TEST_ASSERT_EQUAL_STRING("groove-a", start2.u.enroll.profile_ref);
+    TEST_ASSERT_TRUE(r.fsm->enroll_open());
+    TEST_ASSERT_EQUAL_STRING("groove-a", r.fsm->enroll_ref());
+
+    // anonymous stays anonymous through a re-declare
+    r.fsm->enroll_end(11000 * MS);
+    r.fsm->enroll_start(12000 * MS, "", 90, 4, 12100 * MS);
+    TEST_ASSERT_EQUAL_STRING("", r.fsm->enroll_ref());
+}
+
 static void test_unmatched_ends_refused(void) {
     Rig r;
     TEST_ASSERT_FALSE(r.fsm->grid_end(1000 * MS));
@@ -206,6 +235,7 @@ int main(int, char**) {
     RUN_TEST(test_session_starts_with_full_controller_baseline);
     RUN_TEST(test_idle_timeout_ends_session_and_closes_spans);
     RUN_TEST(test_declaration_starts_session_and_downbeat_clamped);
+    RUN_TEST(test_enroll_redeclare_splits_span_and_keeps_ref);
     RUN_TEST(test_unmatched_ends_refused);
     RUN_TEST(test_nosession_ctrl_policy);
     RUN_TEST(test_ring_full_counts_drops);

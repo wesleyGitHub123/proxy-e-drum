@@ -306,6 +306,8 @@ void SessionController::enroll_start(uint64_t now_us, const char* profile_ref,
     r.t = stamp(now_us);
     strncpy(r.u.enroll.profile_ref, profile_ref, kProfileRefMax);
     r.u.enroll.profile_ref[kProfileRefMax] = '\0';
+    strncpy(enroll_ref_, r.u.enroll.profile_ref, sizeof(enroll_ref_) - 1);
+    enroll_ref_[sizeof(enroll_ref_) - 1] = '\0';
     r.u.enroll.bpm = bpm;
     r.u.enroll.subdiv = subdiv;
     r.u.enroll.downbeat_t = rel_ms(downbeat_us);

@@ -73,6 +73,11 @@ public:
     bool paused() const { return paused_; }
     bool grid_open() const { return grid_open_; }
     bool enroll_open() const { return enroll_open_; }
+    // The open enrollment span's ref ("" = anonymous). Meaningful only while
+    // enroll_open(); a controller needs it to re-declare the span on a click
+    // param change (§5 param-change rule applies to enrollment too — the
+    // snapshot goes stale exactly like a grid segment's).
+    const char* enroll_ref() const { return enroll_ref_; }
     uint32_t current_t(uint64_t now_us) const;
 
 private:
@@ -94,6 +99,7 @@ private:
     bool paused_ = false;
     bool grid_open_ = false;
     bool enroll_open_ = false;
+    char enroll_ref_[kProfileRefMax + 1] = {0};
     uint64_t session_start_us_ = 0;
     uint64_t last_event_us_ = 0;
     uint64_t last_activity_us_ = 0;
